@@ -1,3 +1,20 @@
+```mermaid
+gantt
+    title LỘ TRÌNH PHÁT TRIỂN HỆ THỐNG EDGE AI
+    dateFormat  YYYY-MM-DD
+    section GĐ 1: AI & Data (DONE)
+    Huấn luyện Base Model (Kaggle) :done, 2026-03-01, 2026-03-04
+    Convert TFLite & Scaler Constants :done, 2026-03-04, 2026-03-05
+    section GĐ 2: Edge Node & Dashboard (CURRENT)
+    Thiết kế cấu trúc Dashboard :active, 2026-04-24, 3d
+    Lập trình RTOS trên RA6M5 :2026-04-25, 7d
+    Xây dựng Backend (FastAPI/MQTT) :2026-04-27, 5d
+    section GĐ 3: Retraining & OTA (FUTURE)
+    Viết script Tự động học lại (Server) :2026-05-05, 5d
+    Triển khai cập nhật Model qua WiFi :2026-05-10, 7d
+    Hoàn thiện báo cáo & Demo :2026-05-17, 4d
+```
+
 🌍 1️⃣ Lấy dữ liệu chất lượng không khí từ Open-Meteo
 
 Open-Meteo có Air Quality API riêng, cho phép lấy:
@@ -233,3 +250,26 @@ flowchart TD
     Reload --> MQTT
 ```
 
+
+
+Cấu trúc thư mục:
+
+```
+IAQ_EdgeAI_Dashboard/
+├── backend/                # Xử lý dữ liệu và kết nối Kit
+│   ├── main.py             # FastAPI App khởi tạo server
+│   ├── mqtt_client.py      # Lắng nghe dữ liệu từ ESP32 gửi lên
+│   ├── database_manager.py # Quản lý InfluxDB/SQLite lưu lịch sử cảm biến
+│   └── api/                # Các endpoint trả về dữ liệu cho Dashboard
+├── frontend/               # Giao diện người dùng
+│   ├── app.py              # Streamlit dashboard hiển thị biểu đồ
+│   └── components/         # Các widget (gauge, line chart)
+├── ai_engine/              # "Lò luyện" AI trên Server
+│   ├── retraining_script.py# Script lấy data từ DB để học tăng cường
+│   ├── model_exporter.py   # Chuyển đổi .h5 sang .tflite và Header .h
+│   └── vault/              # Nơi lưu trữ các version của model (v1, v2...)
+├── updates/                # Thư mục chứa file binary để ESP32 tải về (OTA)
+│   └── aqi_model_latest.bin
+├── requirements.txt        # Các thư viện cần thiết (FastAPI, paho-mqtt, tensorflow)
+└── docker-compose.yml      # (Tùy chọn) Chạy nhanh InfluxDB và Grafana
+```

@@ -1,0 +1,1 @@
+pip install plotly tensorflow streamlit pandas paho-mqtt
