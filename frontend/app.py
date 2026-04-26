@@ -1,70 +1,83 @@
 import streamlit as st
-import pandas as pd
 import plotly.graph_objects as go
+import pandas as pd
 import time
 import os
+import sys
+# Lấy đường dẫn thư mục hiện tại của app.py (frontend) và lùi lại 1 bước để ra thư mục gốc
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+sys.path.append(parent_dir)
+
 from backend.database_manager import db_manager
-from backend.retraining_script import run_retraining
 
-# Tắt cảnh báo TensorFlow để Terminal sạch hơn
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-# --- 1. CẤU HÌNH TRANG ---
-st.set_page_config(page_title="Edge AI Monitor", layout="wide")
+# ---------------------------------------------------
 
-st.title("🍃 Edge AI Air Quality: Real-time & Incremental Learning")
-st.markdown("Hệ thống giám sát RA6M5 tích hợp vòng lặp học lại tự động")
+st.set_page_config(page_title="IAQ Monitor", layout="wide")
+st.title("🍃 Predictive Edge AI Using CK-RA6M5")
 
-# --- 2. QUẢN LÝ MÔ HÌNH (MODEL MANAGEMENT) ---
-with st.expander("⚙️ Quản lý mô hình & Học tăng cường", expanded=False):
-    col_info, col_btn = st.columns([3, 1])
-    df_count = db_manager.get_data_for_retraining()
-    
-    with col_info:
-        st.write(f"**Dữ liệu tích lũy:** {len(df_count)} mẫu")
-        st.info("Nhấn Retrain để cập nhật trọng số MLP nhằm giảm sai số MAE.")
-    
-    with col_btn:
-        if st.button("🚀 Kích hoạt Retrain"):
-            with st.spinner("Đang huấn luyện..."):
-                run_retraining() 
-                st.success("Đã cập nhật Model!")
-                time.sleep(2) # Đợi để hiển thị thông báo trước khi rerun
-
-# --- 3. XỬ LÝ DỮ LIỆU VÀ HIỂN THỊ ---
+# Lấy dữ liệu từ DB (giả sử có các cột: timestamp, tvoc, iaq_actual, iaq_forecast, temperature, humidity)
 df = db_manager.get_data_for_retraining()
 
 if not df.empty:
-    # Tính toán AQI thực tế và sai số
-    df['aqi_actual'] = df['eco2'] * 0.05 + df['tvoc'] * 0.1 
-    df['prev_prediction'] = df['aqi_predicted'].shift(1)
-    df['error'] = abs(df['aqi_actual'] - df['prev_prediction'])
-    
     latest = df.iloc[-1]
+    df['error'] = abs(df['iaq_actual'] - df['iaq_forecast'])
     
-    # Hiển thị Metrics
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("eCO2 (ppm)", f"{latest['eco2']:.1f}")
-    c2.metric("TVOC (ppb)", f"{latest['tvoc']:.1f}")
-    c3.metric("🔮 Dự báo (Next 1h)", f"{latest['aqi_predicted']:.1f}")
+    # Status
+    st.subheader(f"Dự báo IAQ (1.0 - 5.0): {latest['iaq_forecast']:.2f}")
     
-    mae = df['error'].mean()
-    c4.metric("📉 Sai số MAE", f"{mae:.2f}", delta=f"{15.06 - mae:.2f} vs Base")
+    # Metrics
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("TVOC (ppb)", f"{latest['tvoc']:.0f}")
+    c2.metric("IAQ Thực tế", f"{latest['iaq_actual']:.2f}")
+    c3.metric("📊 Sai số MAE", f"{df['error'].mean():.3f}")
+    
+    # Thêm Temperature và Humidity nếu có dữ liệu
+    if 'temperature' in df.columns and pd.notna(latest['temperature']):
+        c4.metric("🌡️ Temperature", f"{latest['temperature']:.1f}°C")
+    if 'humidity' in df.columns and pd.notna(latest['humidity']):
+        c5.metric("💧 Humidity", f"{latest['humidity']:.1f}%")
 
-    # Vẽ đồ thị - KHÔNG dùng key trong vòng lặp vô hạn nữa
+    # Đồ thị UBA
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['aqi_actual'], name="AQI Thực tế", line=dict(color='#1f77b4', width=3)))
-    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['prev_prediction'], name="Dự đoán cũ", line=dict(color='#d62728', dash='dot')))
+    fig.add_hrect(y0=1.0, y1=1.9, fillcolor="green", opacity=0.1, annotation_text="Rất Tốt")
+    fig.add_hrect(y0=1.9, y1=2.9, fillcolor="yellowgreen", opacity=0.1, annotation_text="Tốt")
+    fig.add_hrect(y0=2.9, y1=3.9, fillcolor="yellow", opacity=0.1, annotation_text="Trung bình")
+    fig.add_hrect(y0=3.9, y1=4.9, fillcolor="orange", opacity=0.1, annotation_text="Kém")
+    fig.add_hrect(y0=4.9, y1=5.5, fillcolor="red", opacity=0.1, annotation_text="Xấu")
+
+    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['iaq_actual'], name="IAQ Thực tế (ZMOD)", line=dict(color='#1f77b4', width=2)))
+    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['iaq_forecast'], name="IAQ Dự báo (AI)", line=dict(color='#d62728', dash='dot')))
     
-    fig.update_layout(title="Đồ thị đối soát độ chính xác (Real-time Overlay)", height=450)
+    fig.update_layout(height=450, yaxis_range=[0.8, 5.5])
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Biểu đồ TVOC theo thời gian
+    if 'tvoc' in df.columns:
+        fig_tvoc = go.Figure()
+        fig_tvoc.add_trace(go.Scatter(x=df['timestamp'], y=df['tvoc'], name="TVOC (ppb)", 
+                                       line=dict(color='#ff7f0e', width=2), fill='tozeroy'))
+        fig_tvoc.update_layout(height=300, title="TVOC theo thời gian")
+        st.plotly_chart(fig_tvoc, use_container_width=True)
+    
+    # Biểu đồ Temperature & Humidity
+    if 'temperature' in df.columns or 'humidity' in df.columns:
+        fig_env = go.Figure()
+        
+        if 'temperature' in df.columns:
+            fig_env.add_trace(go.Scatter(x=df['timestamp'], y=df['temperature'], 
+                                        name="Temperature (°C)", line=dict(color='#d62728', width=2)))
+        
+        if 'humidity' in df.columns:
+            fig_env.add_trace(go.Scatter(x=df['timestamp'], y=df['humidity'], 
+                                        name="Humidity (%)", line=dict(color='#2ca02c', width=2)))
+        
+        fig_env.update_layout(height=300, title="Nhiệt độ & Độ ẩm theo thời gian")
+        st.plotly_chart(fig_env, use_container_width=True)
 
-    # Thanh tiến trình độ tin cậy
-    acc_rate = (df['error'] < 15.0).mean() * 100
-    st.write(f"**Tỉ lệ dự đoán tin cậy (Sai số < 15):** {acc_rate:.1f}%")
-    st.progress(acc_rate / 100)
+else:
+    st.warning("Đang chờ dữ liệu từ ESP32...")
 
-# --- 4. CƠ CHẾ LÀM MỚI (REAL-TIME REFRESH) ---
-# Thay vì while True, ta dùng time.sleep và st.rerun()
 time.sleep(3) 
 st.rerun()

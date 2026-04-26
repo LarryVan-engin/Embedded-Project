@@ -1,85 +1,113 @@
 import paho.mqtt.client as mqtt
 import json
-import random
 import time
 import numpy as np
 import tensorflow as tf
 from datetime import datetime
+import os
+
+# Tắt log thừa của TensorFlow
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # --- CẤU HÌNH ---
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "iaq/node/data"
-MODEL_PATH = "backend/AQI_model.h5"
+MODEL_PATH = "updates/IAQ_model.h5"
 
-# Bộ hằng số chuẩn hóa (Cần khớp với training và MCU)
-# Lưu ý: Ở đây tôi giả định mảng 30 giá trị Mean/Scale. Bạn hãy cập nhật đúng số của bạn.
-AQI_MEAN = np.array([50.0] * 30) 
-AQI_SCALE = np.array([20.0] * 30)
+# Hằng số chuẩn hóa (Lấy từ kết quả fit_transform của StandardScaler trong train_iaq_model.py)
+# Lưu ý: Cần copy lại 2 con số này mỗi khi bạn chạy Retrain!
+IAQ_MEAN = 2812.118256623945
+IAQ_SCALE = 1904.0350619753567
 
-class VirtualEdgeNode:
+class VirtualZMOD4410Node:
     def __init__(self):
-        # 1. Load model AI thực tế
-        print("🧠 Loading AI Model (.h5)...")
-        self.model = tf.keras.models.load_model(MODEL_PATH)
+        # 1. Load model AI dự báo (AI chạy trên RA6M5)
+        print("🧠 Loading AI Predictive Model (.h5)...")
+        if not os.path.exists(MODEL_PATH):
+            print(f"❌ KHÔNG TÌM THẤY MODEL: Vui lòng chạy train_iaq_model.py trước!")
+            exit()
+        self.model = tf.keras.models.load_model(MODEL_PATH, compile=False)
         
-        # 2. Khởi tạo Sliding Window (6 mốc thời gian x 5 features = 30 đầu vào)
-        self.window = []
+        # 2. Kết nối MQTT
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "ESP32_Gateway_Sim")
         
-        # 3. Kết nối MQTT (Sửa lỗi Callback API version 2.0)
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "Virtual_RA6M5_Node")
+        # Biến đếm thời gian cho sóng Sine
+        self.t = 0.0 
 
-    def generate_sensor_values(self):
-        """Giả lập dữ liệu từ cảm biến ZMOD4410."""
-        eco2 = random.uniform(400, 800)
-        tvoc = random.uniform(50, 200)
-        return eco2, tvoc
+    def get_actual_iaq(self, ppb):
+        """Mô phỏng thuật toán AI tích hợp sẵn của Renesas ZMOD4410 (Ground Truth)"""
+        mg_m3 = (ppb / 1000) / 0.5 
+        if mg_m3 < 0.3: return 1.0 + (mg_m3 / 0.3) * 0.9
+        elif mg_m3 < 1.0: return 2.0 + ((mg_m3 - 0.3) / 0.7) * 0.9
+        elif mg_m3 < 3.0: return 3.0 + ((mg_m3 - 1.0) / 2.0) * 0.9
+        elif mg_m3 < 10.0: return 4.0 + ((mg_m3 - 3.0) / 7.0) * 0.9
+        return 5.0
 
-    def map_to_5_features(self, eco2, tvoc):
-        """Ánh xạ 2 chỉ số thực sang 5 đặc trưng model yêu cầu."""
-        # Thứ tự: [PM2.5, PM10, CO, NO2, O3]
-        return [tvoc, tvoc, eco2, tvoc, tvoc]
+    def generate_sensor_data(self):
+        """Giả lập dữ liệu theo sóng Sine để quét qua 5 mức độ ô nhiễm"""
+        # Sóng Sine cơ bản cộng thêm nhiễu
+        base_tvoc = 2800
+        amplitude = 2700
+        tvoc = base_tvoc + amplitude * np.sin(self.t) + np.random.normal(0, 50)
+        tvoc = np.clip(tvoc, 10, 6000)
+        
+        # Nội suy eCO2 từ TVOC (theo Datasheet)
+        eco2 = np.clip(400 + (tvoc * 0.6) + np.random.normal(0, 10), 400, 5000)
+        
+        # Tăng thời gian t cho chu kỳ tiếp theo
+        self.t += 0.1 
+        
+        return tvoc, eco2
 
-    def predict_aqi(self, eco2, tvoc):
-        """Quy trình suy luận AI giống hệt trên MCU."""
-        # A. Mapping & Thêm vào cửa sổ trượt
-        features = self.map_to_5_features(eco2, tvoc)
-        self.window.append(features)
+    def predict_future_iaq(self, tvoc):
+        """Quy trình suy luận AI (Inference) giống hệt trên MCU RA6M5"""
+        # 1. Point-to-Point: Không cần cửa sổ trượt nữa
+        # 2. Chuẩn hóa: $$z = \frac{x - \mu}{\sigma}$$
+        input_scaled = (tvoc - IAQ_MEAN) / IAQ_SCALE
         
-        if len(self.window) > 6:
-            self.window.pop(0) # Giữ đúng 6 mốc thời gian gần nhất
-            
-        if len(self.window) < 6:
-            return 0.0 # Chưa đủ dữ liệu để dự báo
-            
-        # B. Tiền xử lý: Flatten (30 features) và Scaling
-        # Công thức chuẩn hóa: $$z = \frac{x - \mu}{\sigma}$$
-        input_data = np.array(self.window).flatten()
-        input_scaled = (input_data - AQI_MEAN) / AQI_SCALE
-        
-        # C. Chạy Model Inference
-        # Reshape về (1, 30) để nạp vào model MLP
-        prediction = self.model.predict(input_scaled.reshape(1, -1), verbose=0)
+        # 3. Model Inference (Dự báo)
+        input_array = np.array([[input_scaled]]) # Shape (1, 1)
+        prediction = self.model.predict(input_array, verbose=0)
         return float(prediction[0][0])
 
     def run(self):
-        self.client.connect(MQTT_BROKER, MQTT_PORT)
-        print("✅ Simulator is running with REAL AI model.")
-        
-        while True:
-            eco2, tvoc = self.generate_sensor_values()
-            aqi_pred = self.predict_aqi(eco2, tvoc)
+        try:
+            self.client.connect(MQTT_BROKER, MQTT_PORT)
+            print("✅ Edge AI Simulator is running...")
+            print("   - Sensor: ZMOD4410 (Sine Wave Simulation)")
+            print("   - Predictor: RA6M5 (Point-to-Point MLP)")
+            print("   - Gateway: ESP32 (MQTT)")
             
-            payload = {
-                "eco2": round(eco2, 2),
-                "tvoc": round(tvoc, 2),
-                "aqi_pred": round(aqi_pred, 2)
-            }
-            
-            self.client.publish(MQTT_TOPIC, json.dumps(payload))
-            print(f"📤 MQTT Sent: {payload}")
-            time.sleep(5)
+            while True:
+                # 1. "Đọc" cảm biến
+                tvoc, eco2 = self.generate_sensor_data()
+                
+                # 2. Cảm biến tự tính IAQ hiện tại
+                iaq_actual = self.get_actual_iaq(tvoc)
+                
+                # 3. MCU dự báo IAQ tương lai
+                iaq_forecast = self.predict_future_iaq(tvoc)
+                
+                # 4. Đóng gói JSON gửi qua ESP32
+                payload = {
+                    "tvoc": round(tvoc, 1),
+                    "eco2": round(eco2, 1),
+                    "iaq_actual": round(iaq_actual, 2),
+                    "iaq_forecast": round(iaq_forecast, 2),
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                self.client.publish(MQTT_TOPIC, json.dumps(payload))
+                print(f"📤 Published: TVOC={payload['tvoc']}ppb | Actual={payload['iaq_actual']} | Predict={payload['iaq_forecast']}")
+                
+                time.sleep(3) # Gửi dữ liệu mỗi 3 giây
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Stopped Simulator.")
+        except Exception as e:
+            print(f"❌ Connection Error: {e}")
 
 if __name__ == "__main__":
-    node = VirtualEdgeNode()
+    node = VirtualZMOD4410Node()
     node.run()

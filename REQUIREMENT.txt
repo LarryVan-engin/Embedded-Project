@@ -1,1 +1,1 @@
-pip install plotly tensorflow streamlit pandas paho-mqtt
+pip install plotly tensorflow streamlit pandas paho-mqtt uvicorn fastapi

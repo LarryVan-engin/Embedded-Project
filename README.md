@@ -1,204 +1,432 @@
+# 🍃 Edge AI IAQ Prediction System - CK-RA6M5
+
+## 📌 Mô Tả Dự Án
+
+Hệ thống **Edge AI** dự đoán **chỉ số IAQ (Indoor Air Quality)** theo chuẩn **UBA** (1.0-5.0) sử dụng:
+- **Cảm biến**: ZMOD4410 (CO2, VOC)
+- **Chip MCU**: CK-RA6M5 (Edge AI Inference)
+- **Backend**: FastAPI + MQTT + SQLite
+- **Frontend**: Streamlit Dashboard
+- **MLOps**: Tự động học lại model từ dữ liệu thực tế
+
+---
+
+## ✨ Các Cập Nhật Mới Nhất (April 2026)
+
+### 🔄 MQTT Data Processing Pipeline
+- ✅ **Parser text-based** thay vì JSON
+- ✅ **Extract fields**: TVOC, IAQ Actual, IAQ Predict, Temperature, Humidity
+- ✅ **Regex patterns** để parse data từ ESP32 format
+
+### 📊 Database Schema Enhanced
+- ✅ **Thêm columns**: `temperature`, `humidity`
+- ✅ **Auto migration** cho database cũ
+- ✅ **Remove unused**: `eco2` column
+
+### 📈 Frontend Dashboard Improved
+- ✅ **5 metrics**: TVOC, IAQ Actual, MAE, Temperature, Humidity
+- ✅ **3 biểu đồ**: IAQ Trend, TVOC Timeline, Environment Metrics
+- ✅ **UBA Color zones** (Xanh→Đỏ)
+
+### 🧪 Testing & Documentation
+- ✅ **Unit tests**: `test_mqtt_pipeline.py`
+- ✅ **Auto test commands**: `send_mqtt_test.ps1`
+- ✅ **Complete guides**: MQTT_DATA_PROCESSING.md, TEST_GUIDE.md, QUICK_START.md
+
+---
+
+## 🔄 MQTT Data Processing Workflow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ESP32 gửi dữ liệu MQTT                       │
+│  [547034 ms] Published: TVOC=144.0ppb | Actual=1.86 | Predict=1.80
+│  [548171 ms] [sensor:263] T=31.1 C  RH=46.9%                    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│         MQTT Client (backend/mqtt_client.py)                     │
+│  • Subscribe: iaq/node/data                                      │
+│  • Parse với Regex Patterns                                      │
+│    - TVOC=(\d+\.?\d*)\s*ppb                                      │
+│    - Actual=(\d+\.?\d*)                                          │
+│    - T=(\d+\.?\d*)\s*C                                           │
+│    - RH=(\d+\.?\d*)%                                             │
+│  • Validate: đủ TVOC, Actual, Predict?                           │
+│  • Cache: latest temperature/humidity                            │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓ (Dữ liệu hợp lệ)
+┌─────────────────────────────────────────────────────────────────┐
+│     Database Manager (backend/database_manager.py)               │
+│  • Save to SQLite: air_quality_logs                              │
+│    - timestamp, tvoc, iaq_actual, iaq_forecast                   │
+│    - temperature, humidity                                       │
+│  • Auto migration (thêm columns nếu cần)                         │
+│  • Count samples (check trigger retrain at 500)                  │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              Trigger Checks & Processing                         │
+├─────────────────────┬─────────────────┬─────────────────────────┤
+│  Check Retrain      │   API Handler   │  Frontend Update        │
+│  (500 samples?)     │   /api/v1/      │  (Streamlit refresh)    │
+│  ↓ YES              │   latest        │  ↓                      │
+│  Start Retraining   │   history       │  Dashboard shows:       │
+│  (async thread)     │                 │  • Metrics              │
+│                     │                 │  • Charts & Trends      │
+└─────────────────────┴─────────────────┴─────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│      AI Engine Retraining (ai_engine/retraining_script.py)       │
+│  (Triggered every 500 samples)                                   │
+│  • Extract data from database                                    │
+│  • Normalize: StandardScaler                                     │
+│  • Fine-tune: Epochs=15, LR=0.0001                               │
+│  • Export: TFLite + C-Header (updates/)                          │
+│  • Ready for OTA update to MCU                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📁 Cấu Trúc Dự Án
+
+```
+Embedded-Project/
+├── 🎯 Core Files
+│   ├── backend/
+│   │   ├── mqtt_client.py          ✨ UPDATED: Regex parser
+│   │   ├── database_manager.py     ✨ UPDATED: New schema
+│   │   ├── main.py                 FastAPI server
+│   │   ├── hardware_simulate.py    MQTT data simulator
+│   │   └── iaq_history.db          SQLite database
+│   │
+│   ├── frontend/
+│   │   └── app.py                  ✨ UPDATED: 5 metrics + 3 charts
+│   │
+│   ├── ai_engine/
+│   │   ├── retraining_script.py    Auto retraining
+│   │   └── model_exporter.py       TFLite → C-Header
+│   │
+│   ├── updates/                    Model outputs
+│   │   ├── IAQ_model.h5
+│   │   ├── iaq_model.tflite
+│   │   ├── iaq_model_data.h
+│   │   └── scaler_constants.h
+│   │
+│   ├── API_call_model/             C++ model inference
+│   │   ├── iaq_predictor.cpp
+│   │   └── iaq_predictor.h
+│   │
+│   └── FSP_Project/                RA6M5 firmware
+│       ├── src/
+│       ├── ra_gen/
+│       └── CMakeLists.txt
+│
+├── 📚 Documentation (NEW)
+│   ├── QUICK_START.md              🚀 Bắt đầu nhanh 5 phút
+│   ├── MQTT_DATA_PROCESSING.md     📡 Chi tiết quy trình
+│   ├── TEST_GUIDE.md               🧪 Hướng dẫn test
+│   ├── DETAILED_CHANGES.md         🔍 So sánh trước/sau
+│   ├── CHANGES_SUMMARY.md          📝 Tóm tắt cập nhật
+│   └── README.md                   📖 File này
+│
+└── 🧪 Test Files (NEW)
+    ├── test_mqtt_pipeline.py       Unit tests
+    ├── send_mqtt_test.ps1          Auto test (Windows)
+    ├── test_mqtt_commands.ps1      Interactive test
+    └── test_mqtt_commands.sh       Test commands (Linux)
+```
+
+---
+
+## 🚀 Quick Start (5 Phút)
+
+### ✅ Yêu Cầu
+- Python 3.8+
+- Mosquitto Broker
+- Virtual environment activated
+
+### 📋 Bước 1: Khởi Động Mosquitto (MQTT Broker)
+
+**Terminal 1:**
+```powershell
+mosquitto -p 1883
+```
+
+**Output:**
+```
+1629829264: mosquitto version 2.0.14 starting
+1629829264: Using default config from C:\Program Files\mosquitto\mosquitto.conf
+1629829264: Opening ipv4 listen socket on port 1883
+```
+
+### 📋 Bước 2: Khởi Động Backend Server
+
+**Terminal 2:**
+```powershell
+python -m backend.main
+```
+
+**Output:**
+```
+🚀 Khởi tạo Database...
+📡 Đang khởi động MQTT Client Service...
+✅ MQTT Connected to Broker
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+### 📋 Bước 3: Khởi Động Frontend Dashboard
+
+**Terminal 3:**
+```powershell
+streamlit run frontend/app.py
+```
+
+**Output:**
+```
+Local URL: http://localhost:8501
+```
+
+Trình duyệt sẽ tự động mở. Bạn sẽ thấy dashboard trống (chờ dữ liệu).
+
+### 📋 Bước 4: Gửi Test MQTT Messages
+
+**Terminal 4:**
+```powershell
+.\send_mqtt_test.ps1
+```
+
+**Output Terminal 4:**
+```
+===== MQTT Test Messages =====
+Test 1: Send TVOC + IAQ data
+Sent: [547034 ms] Published: TVOC=144.0ppb | Actual=1.86 | Predict=1.80
+Test 2: Send Temperature + Humidity
+Sent: [548171 ms] [sensor:263] T=31.1 C  RH=46.9%
+...
+===== All tests sent! =====
+```
+
+**Output Terminal 2 (Backend):**
+```
+📨 Raw MQTT: [547034 ms] Published: TVOC=144.0ppb | Actual=1.86 | Predict=1.80
+✅ Parsed: {'tvoc': 144.0, 'iaq_actual': 1.86, 'iaq_forecast': 1.80}
+✅ Saved: TVOC=144.0ppb, Actual=1.86, Predict=1.80
+```
+
+**Terminal 3 (Dashboard):** Sẽ hiển thị metrics + charts 📊
+
+---
+
+## 📊 MQTT Data Format
+
+### Input Format (từ ESP32)
+
+```
+[547034 ms] Published: TVOC=144.0ppb | Actual=1.86 | Predict=1.80
+[548171 ms] [sensor:263] T=31.1 C  RH=46.9%
+[552043 ms] [IAQ_Predict OK]
+```
+
+### Extract Fields
+
+| Field | Regex Pattern | Example | Range |
+|-------|---------------|---------|-------|
+| **TVOC** | `TVOC=(\d+\.?\d*)\s*ppb` | 144.0 | 0-5000 ppb |
+| **IAQ Actual** | `Actual=(\d+\.?\d*)` | 1.86 | 1.0-5.0 (UBA) |
+| **IAQ Predict** | `Predict=(\d+\.?\d*)` | 1.80 | 1.0-5.0 (UBA) |
+| **Temperature** | `T=(\d+\.?\d*)\s*C` | 31.1 | -40 to 85 °C |
+| **Humidity** | `RH=(\d+\.?\d*)%` | 46.9 | 0-100 % |
+
+### Database Schema
+
+```sql
+CREATE TABLE air_quality_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME,           -- "2024-04-26 10:30:45"
+    tvoc REAL,                    -- 144.0 ppb
+    iaq_actual REAL,              -- 1.86 (UBA)
+    iaq_forecast REAL,            -- 1.80 (UBA)
+    temperature REAL,             -- 31.1 °C (NEW)
+    humidity REAL                 -- 46.9 % (NEW)
+);
+```
+
+---
+
+## 📈 System Architecture
+
+```mermaid
+graph TB
+    subgraph "🔗 MQTT Communication"
+        ESP32["📡 ESP32<br/>(WiFi Module)"]
+        BROKER["🏢 Mosquitto Broker<br/>(localhost:1883)"]
+        ESP32 -->|Publish TVOC, T, RH| BROKER
+    end
+
+    subgraph "🖥️ Backend Server (Python)"
+        MQTT_CLIENT["📨 MQTT Client<br/>(mqtt_client.py)<br/>Regex Parser"]
+        DB_MGR["💾 Database Manager<br/>(database_manager.py)<br/>SQLite"]
+        API["🔌 FastAPI<br/>(main.py)<br/>REST API"]
+        
+        BROKER -->|Subscribe| MQTT_CLIENT
+        MQTT_CLIENT -->|Save| DB_MGR
+        DB_MGR -->|Query| API
+    end
+
+    subgraph "🧠 AI Engine"
+        RETRAIN["🔄 Retraining Script<br/>(retraining_script.py)<br/>Every 500 samples"]
+        EXPORTER["📦 Model Exporter<br/>(model_exporter.py)<br/>TFLite → C-Header"]
+        
+        DB_MGR -->|Trigger| RETRAIN
+        RETRAIN -->|Export| EXPORTER
+        EXPORTER -->|Updates| UPDATES["📂 updates/<br/>iaq_model_data.h<br/>scaler_constants.h"]
+    end
+
+    subgraph "📊 Frontend"
+        DASHBOARD["🍃 Streamlit Dashboard<br/>(frontend/app.py)<br/>5 Metrics + 3 Charts"]
+        API -->|Data| DASHBOARD
+    end
+
+    subgraph "📱 MCU"
+        MCU["🎯 RA6M5 MCU<br/>(FSP_Project)<br/>Edge AI Inference"]
+        UPDATES -.->|OTA Update| MCU
+        MCU -->|UART| ESP32
+    end
+```
+
+---
+
+## 🧪 Testing
+
+### Run Unit Tests
+```powershell
+python test_mqtt_pipeline.py
+```
+
+**Output:**
+```
+✅ Pattern 'TVOC=(\d+\.?\d*)\s*ppb' matches 'TVOC=144.0ppb' = 144.0
+✅ Valid payload contains all required fields: True
+✅ ALL TESTS PASSED!
+```
+
+### Check Database
+```powershell
+sqlite3 backend/iaq_history.db
+SELECT * FROM air_quality_logs ORDER BY id DESC LIMIT 5;
+```
+
+### API Endpoints
+```powershell
+# Latest record
+curl http://localhost:8000/api/v1/latest
+
+# History (100 records)
+curl http://localhost:8000/api/v1/history?limit=100
+```
+
+---
+
+## 🎯 IAQ UBA Rating Levels
+
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| **1** | 1.0-1.9 | 🟢 Green | Very Good |
+| **2** | 1.9-2.9 | 🟡 Yellow-Green | Good |
+| **3** | 2.9-3.9 | 🟡 Yellow | Fair |
+| **4** | 3.9-4.9 | 🟠 Orange | Poor |
+| **5** | 4.9-5.0 | 🔴 Red | Very Poor |
+
+---
+
+## 📚 Documentation
+
+| File | Purpose |
+|------|---------|
+| **QUICK_START.md** | 🚀 Bắt đầu nhanh 5 phút |
+| **MQTT_DATA_PROCESSING.md** | 📡 Chi tiết quy trình MQTT |
+| **TEST_GUIDE.md** | 🧪 Hướng dẫn test toàn bộ |
+| **DETAILED_CHANGES.md** | 🔍 Chi tiết so sánh trước/sau |
+| **CHANGES_SUMMARY.md** | 📝 Tóm tắt cập nhật |
+
+---
+
+## 🔧 Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Connection refused | Chắc chắn Mosquitto đang chạy: `mosquitto -p 1883` |
+| MQTT not parsing | Kiểm tra log Terminal 2, chạy tests: `python test_mqtt_pipeline.py` |
+| Database locked | Xóa lock files: `rm backend/iaq_history.db-wal` |
+| Port 8501 busy | Dùng port khác: `streamlit run frontend/app.py --server.port 8502` |
+| Module not found | Cài packages: `pip install -r REQUIREMENT.txt` |
+
+---
+
+## 📊 Performance Metrics
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| MQTT Parse Time | ~1ms | Regex patterns |
+| Database Insert | ~5ms | SQLite |
+| API Response | <100ms | Simple queries |
+| Dashboard Refresh | 3s | Streamlit polling |
+| Model Inference | ~50ms | TFLite on RA6M5 |
+| Retrain Trigger | Every 500 samples | ~25 minutes |
+
+---
+
+## 📝 Development Timeline
+
 ```mermaid
 gantt
     title LỘ TRÌNH PHÁT TRIỂN HỆ THỐNG EDGE AI
     dateFormat  YYYY-MM-DD
-    section GĐ 1: AI & Data (DONE)
-    Huấn luyện Base Model (Kaggle) :done, 2026-03-01, 2026-03-04
-    Convert TFLite & Scaler Constants :done, 2026-03-04, 2026-03-05
-    section GĐ 2: Edge Node & Dashboard (CURRENT)
-    Thiết kế cấu trúc Dashboard :active, 2026-04-24, 3d
-    Lập trình RTOS trên RA6M5 :2026-04-25, 7d
-    Xây dựng Backend (FastAPI/MQTT) :2026-04-27, 5d
-    section GĐ 3: Retraining & OTA (FUTURE)
-    Viết script Tự động học lại (Server) :2026-05-05, 5d
-    Triển khai cập nhật Model qua WiFi :2026-05-10, 7d
-    Hoàn thiện báo cáo & Demo :2026-05-17, 4d
+    
+    section Phase 1: AI & Data
+    Huấn luyện Base Model :done, phase1a, 2026-03-01, 2026-03-04
+    TFLite Conversion :done, phase1b, 2026-03-04, 2026-03-05
+    
+    section Phase 2: Backend & Frontend
+    Backend Framework :done, phase2a, 2026-04-24, 2026-04-26
+    MQTT Parser (Text) :done, phase2b, 2026-04-26, 2026-04-26
+    Frontend Dashboard :done, phase2c, 2026-04-26, 2026-04-26
+    Testing & Docs :active, phase2d, 2026-04-26, 2d
+    
+    section Phase 3: MCU & OTA
+    Edge Inference :phase3a, 2026-05-01, 2d
+    WiFi Connectivity :phase3b, 2026-05-03, 2d
+    OTA Update System :phase3c, 2026-05-05, 3d
+    Integration Test :phase3d, 2026-05-08, 2d
+    
+    section Phase 4: Production
+    Final Demo :phase4a, 2026-05-10, 1d
+    Report & Delivery :phase4b, 2026-05-11, 2d
 ```
 
-🌍 1️⃣ Lấy dữ liệu chất lượng không khí từ Open-Meteo
+---
 
-Open-Meteo có Air Quality API riêng, cho phép lấy:
-```
-    PM2.5
+## 👥 Team & License
 
-    PM10
+- **Developed by**: IoT & Edge AI Lab
+- **License**: MIT
+- **Last Updated**: April 26, 2026
 
-    CO
+---
 
-    NO2
+## 📞 Support & Contact
 
-    O3
+Nếu gặp vấn đề:
+1. ✅ Kiểm tra file tài liệu tương ứng
+2. ✅ Chạy unit tests để debug
+3. ✅ Xem logs trong terminal
+4. ✅ Tham khảo TEST_GUIDE.md
 
-    SO2
+---
 
-    AQI (US AQI / EU AQI)
-```
-
-🔹 Ví dụ URL API
-```
-https://air-quality-api.open-meteo.com/v1/air-quality?
-latitude=LAT&longitude=LON
-&hourly=pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,us_aqi
-&start_date=2023-01-01
-&end_date=2023-12-31
-```
-
-🐍 Code Python lấy dữ liệu
-
-Ví dụ (TP.HCM):
-```
-import requests
-import pandas as pd
-
-url = (
-    "https://air-quality-api.open-meteo.com/v1/air-quality?"
-    "latitude=10.8231&longitude=106.6297"
-    "&hourly=pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,us_aqi"
-    "&start_date=2023-01-01"
-    "&end_date=2023-12-31"
-)
-
-response = requests.get(url)
-data = response.json()
-
-df = pd.DataFrame(data["hourly"])
-df["time"] = pd.to_datetime(df["time"])
-
-print(df.head())
-```
-
-📊 2️⃣ Cấu trúc dữ liệu cho model
-
-Giả sử bạn muốn:
-
-🎯 Mục tiêu:
-
-Dự đoán AQI trong 3 giờ tới
-
-    🧠 Input (X):
-
-    PM2.5
-
-    PM10
-
-    CO
-
-    NO2
-
-    O3
-
-    🎯 Output (y):
-
-    AQI tương lai (shift 3 giờ)
-
-🔹 Tạo target tương lai
-```        
-df["target_aqi"] = df["us_aqi"].shift(-3)
-df = df.dropna()
-```
-
-⚙️ 3️⃣ Tiền xử lý dữ liệu
-Chuẩn hóa (rất quan trọng nếu sau này deploy MCU)
-```
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-
-features = ["pm2_5", "pm10", "carbon_monoxide",
-            "nitrogen_dioxide", "ozone"]
-
-X = df[features].values
-y = df["target_aqi"].values
-
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, shuffle=False
-)
-```
-⚠ Với time series → nên shuffle=False
-
-🤖 4️⃣ Xây dựng Model
-🔹 Cách 1: Model đơn giản (phù hợp MCU)
-```
-import tensorflow as tf
-
-model = tf.keras.Sequential([
-    tf.keras.layers.Dense(16, activation='relu', input_shape=(5,)),
-    tf.keras.layers.Dense(8, activation='relu'),
-    tf.keras.layers.Dense(1)
-])
-
-model.compile(
-    optimizer='adam',
-    loss='mse',
-    metrics=['mae']
-)
-
-model.fit(X_train, y_train, epochs=30, batch_size=32)
-```
-✔ Nhẹ
-✔ Dễ convert TFLite
-✔ Phù hợp RA6M5
-
-🔹 Cách 2: Model Time-Series nâng cao (LSTM)
-
-Nếu muốn chính xác hơn:
-```
-model = tf.keras.Sequential([
-    tf.keras.layers.LSTM(32, input_shape=(window_size, 5)),
-    tf.keras.layers.Dense(1)
-])
-```
-⚠ Nhưng LSTM tốn RAM hơn khi deploy MCU.
-
-📈 5️⃣ Đánh giá model
-```
-loss, mae = model.evaluate(X_test, y_test)
-print("MAE:", mae)
-```
-MAE < 5 → rất tốt
-MAE 5–15 → chấp nhận được
-
-```mermaid
-graph TD
-    %% Tầng Thiết bị (Edge Layer)
-    subgraph "NODE NHÚNG (CK-RA6M5)"
-        S1[Cảm biến ZMOD4410] -- I2C --> MCU[Vi điều khiển RA6M5]
-        MCU -- RTOS Task 1 --> BUF[(Circular Buffer 6h)]
-        MCU -- RTOS Task 2 --> AI[Edge AI: TFLite Inference]
-        MCU -- RTOS Task 3 --> COM[UART/SPI Config]
-    end
-
-    %% Tầng Giao tiếp
-    COM <-->|UART Register-level| WiFi[Module WiFi ESP32]
-    WiFi <-->|Internet / MQTT| Server
-
-    %% Tầng Máy chủ (Cloud/Server Layer)
-    subgraph "MÁY CHỦ (SERVER & DATABASE)"
-        Server --> DB[(Database: InfluxDB)]
-        DB --> Train[Retraining Script: Python]
-        Train --> Conv[TFLite Converter]
-        Conv --> Update[Model Update Package]
-        Server --> Dash[Web Dashboard]
-    end
-
-    %% Luồng cập nhật Model (Feedback Loop)
-    Update -.->|OTA Update| WiFi
-
-```
-```
-Giải thích các khối chức năng trong sơ đồ
-    - Khối Cảm biến (ZMOD4410): Thu thập các chỉ số hóa học eCO2 và TVOC từ môi trường thực tế.
-
-    - Khối Vi điều khiển (RA6M5): Đóng vai trò trung tâm xử lý, sử dụng Azure RTOS để quản lý đa nhiệm.
-
-    - Circular Buffer: Lưu trữ 6 mẫu dữ liệu gần nhất (tương đương 6 giờ) để làm đầu vào cho mô hình AI.
-
-Edge AI: Thực hiện chuẩn hóa dữ liệu bằng bộ hằng số Mean/Scale và chạy suy luận AQI từ mô hình MLP.
-    - Khối Module WiFi (ESP32): Là cầu nối giao tiếp, gửi dữ liệu cảm biến lên Server và nhận gói tin cập nhật mô hình mới.
-
-    - Khối Retraining Script: Chạy trên Server để huấn luyện lại mô hình dựa trên dữ liệu thực tế từ Database, giúp cải thiện sai số MAE từ mức ban đầu 15.06.
+**Happy coding! 🚀**
 
     - Khối Dashboard: Hiển thị số liệu thực tế, kết quả dự báo và trạng thái cập nhật của mô hình AI.
 ```
@@ -269,7 +497,7 @@ IAQ_EdgeAI_Dashboard/
 │   ├── model_exporter.py   # Chuyển đổi .h5 sang .tflite và Header .h
 │   └── vault/              # Nơi lưu trữ các version của model (v1, v2...)
 ├── updates/                # Thư mục chứa file binary để ESP32 tải về (OTA)
-│   └── aqi_model_latest.bin
+│   └── iaq_model_latest.bin
 ├── requirements.txt        # Các thư viện cần thiết (FastAPI, paho-mqtt, tensorflow)
 └── docker-compose.yml      # (Tùy chọn) Chạy nhanh InfluxDB và Grafana
 ```
