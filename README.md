@@ -259,15 +259,15 @@ CREATE TABLE air_quality_logs (
 
 ```mermaid
 graph TB
-    subgraph "🔗 MQTT Communication"
-        ESP32["📡 ESP32<br/>(WiFi Module)"]
-        BROKER["🏢 Mosquitto Broker<br/>(localhost:1883)"]
+    subgraph " MQTT Communication"
+        ESP32[" ESP32<br/>(WiFi Module)"]
+        BROKER[" Mosquitto Broker<br/>(localhost:1883)"]
         ESP32 -->|Publish TVOC, T, RH| BROKER
     end
 
-    subgraph "🖥️ Backend Server (Python)"
-        MQTT_CLIENT["📨 MQTT Client<br/>(mqtt_client.py)<br/>Regex Parser"]
-        DB_MGR["💾 Database Manager<br/>(database_manager.py)<br/>SQLite"]
+    subgraph " Backend Server (Python)"
+        MQTT_CLIENT[" MQTT Client<br/>(mqtt_client.py)<br/>Regex Parser"]
+        DB_MGR[" Database Manager<br/>(database_manager.py)<br/>SQLite"]
         API["🔌 FastAPI<br/>(main.py)<br/>REST API"]
         
         BROKER -->|Subscribe| MQTT_CLIENT
@@ -275,22 +275,22 @@ graph TB
         DB_MGR -->|Query| API
     end
 
-    subgraph "🧠 AI Engine"
+    subgraph " AI Engine"
         RETRAIN["🔄 Retraining Script<br/>(retraining_script.py)<br/>Every 500 samples"]
-        EXPORTER["📦 Model Exporter<br/>(model_exporter.py)<br/>TFLite → C-Header"]
+        EXPORTER[" Model Exporter<br/>(model_exporter.py)<br/>TFLite → C-Header"]
         
         DB_MGR -->|Trigger| RETRAIN
         RETRAIN -->|Export| EXPORTER
         EXPORTER -->|Updates| UPDATES["📂 updates/<br/>iaq_model_data.h<br/>scaler_constants.h"]
     end
 
-    subgraph "📊 Frontend"
-        DASHBOARD["🍃 Streamlit Dashboard<br/>(frontend/app.py)<br/>5 Metrics + 3 Charts"]
+    subgraph " Frontend"
+        DASHBOARD[" Streamlit Dashboard<br/>(frontend/app.py)<br/>5 Metrics + 3 Charts"]
         API -->|Data| DASHBOARD
     end
 
-    subgraph "📱 MCU"
-        MCU["🎯 RA6M5 MCU<br/>(FSP_Project)<br/>Edge AI Inference"]
+    subgraph " MCU"
+        MCU[" RA6M5 MCU<br/>(FSP_Project)<br/>Edge AI Inference"]
         UPDATES -.->|OTA Update| MCU
         MCU -->|UART| ESP32
     end
@@ -429,52 +429,63 @@ Nếu gặp vấn đề:
 **Happy coding! 🚀**
 
     - Khối Dashboard: Hiển thị số liệu thực tế, kết quả dự báo và trạng thái cập nhật của mô hình AI.
-```
 
 Lưu đồ giải thuật tổng quát:
+
 ```mermaid
-flowchart TD
-    A([Bắt đầu]) --> B[Khởi tạo Hardware: I2C, UART, SCI Register-level]
-    B --> C[Khởi tạo Azure RTOS & TensorFlow Lite Micro]
-    C --> D[Nạp Model AI & Thông số Scaler từ Flash]
-    D --> E[Khởi tạo 3 Tasks: Sensor, AI, Communication]
-    E --> F{RTOS Scheduler}
-    F --> G[Task 1: Đọc cảm biến mỗi 1 phút]
-    F --> H[Task 2: Chạy suy luận AI mỗi 1 giờ]
-    F --> I[Task 3: Truyền dữ liệu & Cập nhật OTA]
-    G & H & I --> F
+    flowchart TD
+        A([Bắt đầu]) --> B[Khởi tạo Hardware: I2C, UART, SCI Register-level]
+        B --> C[Khởi tạo Azure RTOS & TensorFlow Lite Micro]
+        C --> D[Nạp Model AI & Thông số Scaler từ Flash]
+        D --> E[Khởi tạo 3 Tasks: Sensor, AI Inference, Communication]
+        E --> F{RTOS Scheduler}
+        F --> G["Task 1: Đọc cảm biến<br/>⏱️ Mỗi 1 phút<br/>📊 Lưu vào MQTT Buffer"]
+        F --> H["Task 2: Suy luận AI<br/>⏱️ Mỗi 1 giờ<br/>🤖 Lấy data từ buffer → Inference"]
+        F --> I["Task 3: Giao tiếp & OTA<br/>⏱️ Liên tục<br/>📡 Gửi data & nhận update"]
+        G & H & I --> F
+        F --> J{Có lệnh cập nhật?}
+        J -- Có --> K[Tải model mới từ Server<br/>Ghi vào Flash]
+        K --> D
+        J -- Không --> F
 ```
 
 Lưu đồ task AI Inference (Edge AI)
-Đây là trọng tâm xử lý của model AI trên notebook kaggle, nhằm huấn luyện mô hình AI.
+Đây là trọng tâm xử lý của model AI trên MCU RA6M5, nhằm suy luận IAQ dựa trên dữ liệu cảm biến.
 
 ```mermaid
 flowchart TD
-    Start2([Bắt đầu Task AI]) --> Check[Kiểm tra Circular Buffer]
-    Check -- Chưa đủ 6 mẫu --> Wait[Đợi đủ dữ liệu 6 giờ]
-    Wait --> Check
-    Check -- Đủ 6 mẫu --> Pre[Tiền xử lý: Chuẩn hóa dữ liệu Scaler]
+    Start2([Bắt đầu Task AI Inference]) --> Trigger{Đến mốc thời gian inference?}
+    Trigger -- Không, đợi --> Wait[Đợi mốc thời gian tiếp theo<br/>Mặc định: mỗi 1 giờ]
+    Wait --> Trigger
+    Trigger -- Có --> Fetch[Lấy dữ liệu mới nhất từ MQTT Buffer]
+    Fetch --> Valid{Dữ liệu hợp lệ?<br/>Có TVOC, Actual, Predict?}
+    Valid -- Không --> Trigger
+    Valid -- Có --> Pre[Tiền xử lý: Chuẩn hóa dữ liệu<br/>Áp dụng Scaler Constants]
     Pre --> Invoke[Chạy TFLite Interpreter: Invoke]
-    Invoke --> Post[Hậu xử lý: Tính toán AQI cuối cùng]
-    Post --> Bias[Áp dụng Local Bias từ chu kỳ học trước]
+    Invoke --> Post[Hậu xử lý: Tính toán IAQ Score]
+    Post --> Bias[Áp dụng Local Bias từ mô hình học trước]
     Bias --> Output[Lưu kết quả dự đoán vào bộ nhớ]
-    Output --> Wait2[Đợi mốc thời gian tiếp theo]
-    Wait2 --> Check
+    Output --> Send[Gửi dự đoán qua UART/MQTT]
+    Send --> Trigger
 ```
 
 Lưu đồ Task Cập nhật model (OTA)
-Cập nhật model mới sau khi huấn luyện tăng cường trên Server thông qua WIFI.
+Cập nhật model mới sau khi huấn luyện tăng cường trên Server thông qua MQTT.
 
 ```mermaid
 flowchart TD
-    Start3([Bắt đầu Task Com]) --> MQTT[Duy trì kết nối MQTT]
-    MQTT --> Send[Gửi eCO2, TVOC, AQI_Pred lên Server]
-    Send --> Msg{Nhận bản tin cập nhật?}
-    Msg -- No --> MQTT
-    Msg -- Yes --> Download[ESP32 tải Model mới .tflite]
-    Download --> Trans[Truyền Model qua UART Register-level]
-    Trans --> Write[RA6M5 ghi Model vào Flash]
-    Write --> Reload[Khởi động lại TFLite với Model mới]
+    Start3([Bắt đầu Task Communication]) --> MQTT[Duy trì kết nối MQTT]
+    MQTT --> Buffer["Lưu dữ liệu vào Buffer<br/>TVOC, Actual, Predict,<br/>Temperature, Humidity"]
+    Buffer --> Send[Gửi dữ liệu & kết quả inference lên Server]
+    Send --> Msg{Nhận bản tin<br/>cập nhật model?}
+    Msg -- Không --> MQTT
+    Msg -- Có: Model.tflite<br/>+ Scaler Constants --> Download["Tải Model mới<br/>+ Scaler Constants"]
+    Download --> Trans["ESP32 truyền qua UART<br/>Register-level protocol"]
+    Trans --> Write["RA6M5 ghi vào Flash<br/>Internal Memory"]
+    Write --> Verify[Xác minh checksum]
+    Verify -- Lỗi --> Retry["Retry tải lại<br/>Max 3 lần"]
+    Retry --> Trans
+    Verify -- Thành công --> Reload["Khởi động lại TFLite Interpreter<br/>Load Model mới"]
     Reload --> MQTT
 ```
 
