@@ -1,6 +1,0 @@
-C:/Users/ASUS/FSPSmartConfigurator/FSP_Project/build/CMakeFiles/open_rasc_FSP_Project.dir
-C:/Users/ASUS/FSPSmartConfigurator/FSP_Project/build/CMakeFiles/FSP_Project.elf.dir
-C:/Users/ASUS/FSPSmartConfigurator/FSP_Project/build/CMakeFiles/generate_content_FSP_Project.dir
-C:/Users/ASUS/FSPSmartConfigurator/FSP_Project/build/CMakeFiles/generate_sbd_FSP_Project.dir
-C:/Users/ASUS/FSPSmartConfigurator/FSP_Project/build/CMakeFiles/edit_cache.dir
-C:/Users/ASUS/FSPSmartConfigurator/FSP_Project/build/CMakeFiles/rebuild_cache.dir

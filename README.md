@@ -512,3 +512,22 @@ IAQ_EdgeAI_Dashboard/
 ├── requirements.txt        # Các thư viện cần thiết (FastAPI, paho-mqtt, tensorflow)
 └── docker-compose.yml      # (Tùy chọn) Chạy nhanh InfluxDB và Grafana
 ```
+
+Sơ đồ kết nối hệ thống với RA6M5 và ESP32
+
+```
+
+[ Cảm biến ZMOD4410 ]
+        │
+        ▼
+[ Kit Renesas CK-RA6M5 ]
+        │  (UART/SPI/I2C)
+        ▼
+[ ESP32 (Wi-Fi) ]
+        │  (Wi-Fi)
+        ▼
+[ Server / Cloud ]
+        ├── Giám sát dữ liệu IAQ
+        └── Phân tích & dự đoán
+
+```
