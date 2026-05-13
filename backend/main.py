@@ -39,7 +39,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.responses import FileResponse
+
 # --- 3. CÁC API ENDPOINTS ---
+MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "updates", "iaq_model.tflite")
+
+@app.get("/api/v1/model/version")
+async def get_model_version():
+    if not os.path.exists(MODEL_PATH):
+        raise HTTPException(status_code=404, detail="Model not found")
+    file_size = os.path.getsize(MODEL_PATH)
+    return {"version": file_size}
+
+@app.get("/api/v1/model/latest")
+async def get_latest_model():
+    if not os.path.exists(MODEL_PATH):
+        raise HTTPException(status_code=404, detail="Model not found")
+    return FileResponse(MODEL_PATH, media_type="application/octet-stream", filename="iaq_model.tflite")
+
 @app.get("/")
 async def root():
     return {"message": "IAQ Edge AI Backend is running", "status": "online"}

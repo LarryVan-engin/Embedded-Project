@@ -9,7 +9,7 @@
  */
 
 #include "GPIO.h"
-#include "bsp_aht20.h"
+#include "bsp_hs3001.h"
 #include "debug_print.h"
 #include "drv_i2c.h"
 #include "drv_uart.h"
@@ -88,7 +88,7 @@ static void i2c_scan(I2C_t i2c)
 
     if (ack != 0U) {
       debug_print("  [0x%x] ACK%s\r\n", (unsigned)addr,
-                  (addr == AHT20_I2C_ADDR) ? " <- AHT20" : "");
+                  (addr == HS3001_I2C_ADDR) ? " <- HS3001" : "");
       count++;
     }
   }
@@ -123,10 +123,10 @@ static void task_sensor_logger(void *arg)
   (void)arg;
 
   for (;;) {
-    AHT20_Data_t data;
-    AHT20_Status_t st = AHT20_Read(I2C1, &data);
+    HS3001_Data_t data;
+    HS3001_Status_t st = HS3001_Read(I2C0, &data);
 
-    if (st == AHT20_OK) {
+    if (st == HS3001_OK) {
       int32_t t10 = (int32_t)(data.temperature_c * 10.0f);
       int32_t rh10 = (int32_t)(data.humidity_pct * 10.0f);
 
@@ -138,7 +138,7 @@ static void task_sensor_logger(void *arg)
                   (unsigned)((uint32_t)rh10 % 10U));
       LED3_ON();
     } else {
-      debug_print("[sensor:%u] AHT20 err=%u (1=NACK 2=BUSY 3=TIMEOUT)\r\n",
+      debug_print("[sensor:%u] HS3001 err=%u (1=NACK 2=STALE 3=TIMEOUT)\r\n",
                   (unsigned)sample,
                   (unsigned)st);
       led_toggle(LED3_PIN);
@@ -187,10 +187,10 @@ int main(void)
   debug_print("I2C   : RIIC1 P512(SCL)/P511(SDA) @ 100 kHz\r\n");
   debug_print("TDRE  : %s\r\n", tdre_ok != 0U ? "OK" : "FAIL (check MSTPCRB)");
 
-  I2C_Init(I2C1, 50U, I2C_SPEED_STANDARD);
-  i2c_scan(I2C1);
+  I2C_Init(I2C0, 50U, I2C_SPEED_STANDARD);
+  i2c_scan(I2C0);
   delay_ms_bm(120U);
-  AHT20_Init(I2C1);
+  HS3001_Init(I2C0);
 
   OS_Init();
 
@@ -240,7 +240,7 @@ int main(void)
     app_panic("OS_TimerStart", status);
   }
 
-  debug_print("Tasks ready: LED1 blink, AHT20 logger, LED2 timer blink\r\n");
+  debug_print("Tasks ready: LED1 blink, HS3001 logger, LED2 timer blink\r\n");
   LED3_ON();
 
   OS_Start();

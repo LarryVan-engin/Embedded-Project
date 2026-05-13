@@ -73,6 +73,10 @@ SensorPacket_t SensorSim_Read(void)
     /* --- Reference IAQ --- */
     pkt.iaq_reference = calculate_reference_iaq(pkt.tvoc);
 
+    /* --- Temperature and Humidity --- */
+    pkt.temperature = 25.0f + (get_random_float() * 10.0f); /* 25.0 to 35.0 C */
+    pkt.humidity    = 40.0f + (get_random_float() * 20.0f); /* 40.0 to 60.0 % */
+
     /* Advance time */
     s_time += 0.1f;
 

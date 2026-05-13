@@ -500,7 +500,17 @@ void fwupdate_receiver_init(void)
         s_ctx.frame_data[i] = 0U;
     }
 
-    UART_Init((UART_t)FWUPDATE_UART_CH, FWUPDATE_UART_BAUDRATE);
+    /* NOTE: UART_Init() is intentionally NOT called here.
+     * server_comm_uart_init() already initialised this SCI channel before
+     * fwupdate_receiver_init() is called (see server_comm_init() call order).
+     * Calling UART_Init() a second time resets SCR (TE|RE → 0 then back to 1)
+     * which causes the first few bytes of any incoming CMD_START frame to be
+     * dropped, resulting in a permanent CMD_START failed condition.
+     *
+     * If you ever call fwupdate_receiver_init() standalone (without
+     * server_comm_uart_init() running first), uncomment the line below:
+     */
+    /* UART_Init((UART_t)FWUPDATE_UART_CH, FWUPDATE_UART_BAUDRATE); */
 }
 
 /* -----------------------------------------------------------------------

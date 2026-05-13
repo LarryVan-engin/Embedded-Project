@@ -62,7 +62,7 @@
   
   /* Sensor configuration: REAL sensors */
   #define USE_REAL_SENSORS    1
-  #define USE_SENSOR_AHT20    1
+  #define USE_SENSOR_HS3001   1
   #define USE_SENSOR_ZMOD4410 1
   #define USE_SENSOR_SIMULATOR 0
 
@@ -87,7 +87,7 @@
   
   /* Sensor configuration: SIMULATOR (no physical sensors on EK) */
   #define USE_REAL_SENSORS    0
-  #define USE_SENSOR_AHT20    0
+  #define USE_SENSOR_HS3001   0
   #define USE_SENSOR_ZMOD4410 0
   #define USE_SENSOR_SIMULATOR 1
 

@@ -36,6 +36,11 @@ static Semaphore_t s_server_comm_tx_sem;
 static server_comm_ctx_t s_server_comm;
 static uint8_t s_server_comm_inited = 0U;
 
+/* Set to 1 by task_server_comm_rx when an OTA transfer is in progress.
+ * task_server_comm_iaq checks this before sending any UART TX bytes to
+ * avoid corrupting the OTA ACK/NACK stream on the shared channel. */
+static volatile uint8_t s_ota_active = 0U;
+
 static int32_t server_comm_round_to_i32(float val)
 {
     if (val >= 0.0f)
@@ -162,6 +167,15 @@ static void server_comm_send_published(int32_t tvoc_x10, int32_t actual_x100, in
     server_comm_send_cstr("\r\n");
 }
 
+static void server_comm_send_env(int32_t temp_x10, int32_t hum_x10)
+{
+    server_comm_send_cstr("T=");
+    server_comm_send_fixed_1(temp_x10);
+    server_comm_send_cstr(" C  RH=");
+    server_comm_send_fixed_1(hum_x10);
+    server_comm_send_cstr("%\r\n");
+}
+
 static void task_server_comm_tx(void *arg)
 {
     int32_t tvoc_x10;
@@ -204,10 +218,41 @@ static void task_server_comm_rx(void *arg)
 
     for (;;)
     {
-        (void)fwupdate_receiver_run();
+        /* Clear UART hardware errors (ORER/FER/PER) using correct RA6M5 sequence:
+         * 1. Read SSR to detect errors
+         * 2. If RDRF+ORER: read RDR to discard the errored byte (clears RDRF)
+         * 3. Write 0 to error bits in SSR to clear them
+         * Failure to follow this sequence on RA6M5 leaves ORER latched,
+         * blocking all future RX (RDRF never gets set again). */
+        {
+            uint8_t ssr = SCI_SSR(OS_DEBUG_UART_CHANNEL);
+            if ((ssr & (SSR_ORER | SSR_FER | SSR_PER)) != 0U)
+            {
+                /* Discard errored byte if one is pending */
+                if ((ssr & SSR_RDRF) != 0U)
+                {
+                    (void)SCI_RDR(OS_DEBUG_UART_CHANNEL);
+                }
+                /* Clear error flags: write 0 to error bits, keep TDRE/RDRF as-is */
+                SCI_SSR(OS_DEBUG_UART_CHANNEL) = (uint8_t)0xC0U; /* TDRE=1,RDRF=1, errors=0 */
+            }
+        }
+
+        fwupdate_state_t fw_state = fwupdate_receiver_run();
+
+        /* Signal IAQ TX task to pause when an OTA transfer is active.
+         * IDLE and DONE states mean no active transfer. */
+        s_ota_active = ((fw_state != FWUPDATE_STATE_IDLE) &&
+                        (fw_state != FWUPDATE_STATE_DONE)) ? 1U : 0U;
+
+        /* Delay 1 tick (1 ms) so task_server_comm_iaq (priority 7, lower) and
+         * other tasks can run. OS_Yield() does NOT work here: because this task
+         * is priority 6, OS_Yield() would immediately reschedule it back and
+         * starve all lower-priority tasks (including the IAQ UART TX task). */
         OS_Task_Delay(1U);
     }
 }
+
 
 static void task_server_comm_iaq(void *arg)
 {
@@ -257,14 +302,31 @@ static void task_server_comm_iaq(void *arg)
         int p_frac1 = (int)((predict_100 % 100) / 10);
         int p_frac2 = (int)(predict_100 % 10);
 
+        int32_t temp_10 = (int32_t)(pkt.temperature * 10.0f);
+        int32_t hum_10 = (int32_t)(pkt.humidity * 10.0f);
+        int temp_int = (int)(temp_10 / 10);
+        int temp_frac = (int)(temp_10 % 10);
+        int hum_int = (int)(hum_10 / 10);
+        int hum_frac = (int)(hum_10 % 10);
+
         debug_print("[SensorSim_Read OK]\r\n");
         debug_print("[IAQ_Predict OK]\r\n");
         debug_print("Published: TVOC=%d.%dppb | Actual=%d.%d%d | Predict=%d.%d%d\r\n",
                     t_int, t_frac, a_int, a_frac1, a_frac2, p_int, p_frac1, p_frac2);
+        debug_print("T=%d.%d C  RH=%d.%d%%\r\n", temp_int, temp_frac, hum_int, hum_frac);
 
-        /* Keep USB debug on debug_print(), and mirror the server-compatible
-         * payload to the Arduino UART as plain ASCII text. */
-        server_comm_send_published(tvoc_10, actual_100, predict_100);
+        /* Pause UART TX to ESP32 while OTA transfer is receiving frames.
+         * Transmitting IAQ text during OTA would corrupt the ACK/NACK
+         * bytes the fwupdate receiver sends back on the same channel. */
+        if (s_ota_active == 0U)
+        {
+            server_comm_send_published(tvoc_10, actual_100, predict_100);
+            server_comm_send_env(temp_10, hum_10);
+        }
+        else
+        {
+            debug_print("[srv_iaq] TX paused: OTA in progress\r\n");
+        }
 
         OS_Task_Delay(IAQ_CYCLE_DELAY_MS);
     }

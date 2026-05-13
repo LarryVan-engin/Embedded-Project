@@ -46,13 +46,13 @@
 /* -----------------------------------------------------------------------
  * USER CONFIGURATION — edit before flashing
  * ----------------------------------------------------------------------- */
-#define ENABLE_MCU_SIMULATION 1  /* Set to 1 to simulate MCU data for server testing */
+#define ENABLE_MCU_SIMULATION 0  /* Set to 1 to simulate MCU data for server testing */
 
-#define WIFI_SSID            "iphone"
-#define WIFI_PASSWORD        "12345678"
+#define WIFI_SSID            "MT4E"
+#define WIFI_PASSWORD        "2213787VT"
 
 /* IP / hostname of the machine running FastAPI and the MQTT broker */
-#define SERVER_IP            "172.20.10.2"
+#define SERVER_IP            "10.239.121.8"
 #define MQTT_BROKER_PORT     1883
 #define SERVER_BASE_URL      "http://" SERVER_IP ":8000"
 
@@ -82,6 +82,10 @@
 
 #define DATA_BLOCK_SIZE      128U    /* max payload bytes per CMD_DATA frame */
 #define ACK_TIMEOUT_MS       500U    /* ms to wait for ACK/NACK per frame    */
+/* CMD_START triggers a Data Flash erase on RA6M5:
+ * ceil(4456 / 64) = 70 blocks × ~10 ms/block = ~700 ms.
+ * Give 3000 ms headroom so erase always finishes before timeout. */
+#define CMD_START_TIMEOUT_MS 3000U   /* ms to wait for CMD_START ACK (flash erase) */
 #define MAX_RETRIES          3U      /* retries before aborting transfer      */
 #define INTER_FRAME_DELAY    20U     /* ms between frames (flash write time)  */
 
@@ -286,8 +290,9 @@ static bool ota_send_model(const uint8_t *model, uint32_t model_len)
         bool ok = false;
         for (uint8_t t = 0U; t < MAX_RETRIES; t++) {
             ota_send_frame(CMD_START, payload, 4U);
-            if (ota_wait_ack(ACK_TIMEOUT_MS) == CMD_ACK) { ok = true; break; }
-            delay(100U);
+            /* Use longer timeout: RA6M5 erases ~70 Data Flash blocks before ACK */
+            if (ota_wait_ack(CMD_START_TIMEOUT_MS) == CMD_ACK) { ok = true; break; }
+            delay(200U);
         }
         if (!ok) { Serial.println("[OTA] CMD_START failed"); return false; }
     }

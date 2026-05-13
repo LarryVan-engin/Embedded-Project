@@ -119,7 +119,7 @@ target_include_directories(${PROJECT_NAME}.elf
     # RTOS kernel headers
     ${CMAKE_CURRENT_SOURCE_DIR}/Middleware/Kernel/include
     # BSP sensor drivers
-    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/AHT20
+    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/HS3001
     ${CMAKE_CURRENT_SOURCE_DIR}/BSP/ZMOD4410
     # TFLite Micro — root (for tensorflow/lite/... includes)
     ${CMAKE_CURRENT_SOURCE_DIR}/Middleware/TensorFlowLite

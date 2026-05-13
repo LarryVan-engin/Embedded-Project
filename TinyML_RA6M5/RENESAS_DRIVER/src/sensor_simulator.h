@@ -31,6 +31,8 @@ typedef struct {
     float tvoc;           /**< Total VOC concentration (ppb)           */
     float eco2;           /**< Estimated CO2 equivalent (ppm)          */
     float iaq_reference;  /**< Analytical IAQ via UBA formula (1-5)    */
+    float temperature;    /**< Simulated Temperature (Celsius)         */
+    float humidity;       /**< Simulated Relative Humidity (%)         */
 } SensorPacket_t;
 
 /**

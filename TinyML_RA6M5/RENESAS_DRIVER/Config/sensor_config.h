@@ -20,14 +20,14 @@
 #if (BOARD_TYPE == BOARD_TYPE_CK)
   /* CK-RA6M5: Real sensors attached */
   #define USE_REAL_SENSORS    1
-  #define USE_SENSOR_AHT20    1
+  #define USE_SENSOR_HS3001   1
   #define USE_SENSOR_ZMOD4410 1
   #define USE_SENSOR_SIMULATOR 0
 
 #elif (BOARD_TYPE == BOARD_TYPE_EK)
   /* EK-RA6M5: No physical sensors, use simulator */
   #define USE_REAL_SENSORS    0
-  #define USE_SENSOR_AHT20    0
+  #define USE_SENSOR_HS3001   0
   #define USE_SENSOR_ZMOD4410 0
   #define USE_SENSOR_SIMULATOR 1
 
@@ -49,9 +49,9 @@
 #define I2C_SENSOR_BUS        I2C1
 #define I2C_SENSOR_SPEED      I2C_SPEED_STANDARD  /* 100 kHz */
 
-/* AHT20 Humidity/Temperature Sensor */
-#define AHT20_I2C_ADDRESS     0x38U
-#define AHT20_ENABLED         (USE_SENSOR_AHT20)
+/* HS3001 Humidity/Temperature Sensor (I2C0: P400/P401) */
+#define HS3001_I2C_ADDRESS    0x44U
+#define HS3001_ENABLED        (USE_SENSOR_HS3001)
 
 /* ZMOD4410 Air Quality Sensor */
 #define ZMOD4410_I2C_ADDRESS  0x33U
