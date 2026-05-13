@@ -1,0 +1,47 @@
+# Build artifacts
+build/
+
+*.o
+*.a
+*.elf
+*.srec
+*.hex
+*.bin
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.cmake/
+
+# IDE and editor
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dependencies
+ra/
+*.d
+
+# Generated files
+cmake/GeneratedCfg.cmake
+cmake/GeneratedSrc.cmake
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# Build output
+*.ninja
+.ninja_*
+TESTING_2.srec
+
+.cache/
+ra/
+tflite-micro-main/
+Embedded-Project-main/
