@@ -22,16 +22,32 @@ df = db_manager.get_data_for_retraining()
 
 if not df.empty:
     latest = df.iloc[-1]
-    df['error'] = abs(df['iaq_actual'] - df['iaq_forecast'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    
+    # Tính toán khoảng thời gian giữa các mẫu để dời (shift) đúng 10 phút
+    dt_seconds = df['timestamp'].diff().dt.total_seconds().median()
+    if pd.notna(dt_seconds) and dt_seconds > 0:
+        shift_steps = int((10 * 60) / dt_seconds)
+    else:
+        shift_steps = 120  # Mặc định nếu chưa đủ mẫu để tính (ví dụ chu kỳ 5s)
+        
+    # Kéo cột forecast của quá khứ (T - 10 phút) xuống hiện tại (T) để đối chiếu
+    df['iaq_forecast_aligned'] = df['iaq_forecast'].shift(shift_steps)
+    df['error'] = abs(df['iaq_actual'] - df['iaq_forecast_aligned'])
+    
+    # Chỉ lấy sai số trung bình ở những điểm đã có đối chiếu
+    mean_error = df['error'].dropna().mean()
+    if pd.isna(mean_error):
+        mean_error = 0.0
     
     # Status
-    st.subheader(f"Dự báo IAQ (1.0 - 5.0): {latest['iaq_forecast']:.2f}")
+    st.subheader(f"Dự báo IAQ (1.0 - 5.0): {latest['iaq_forecast']:.2f} (cho 10 phút sau)")
     
     # Metrics
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("TVOC (ppb)", f"{latest['tvoc']:.0f}")
     c2.metric("IAQ Thực tế", f"{latest['iaq_actual']:.2f}")
-    c3.metric("📊 Sai số MAE", f"{df['error'].mean():.3f}")
+    c3.metric("📊 Sai số MAE", f"{mean_error:.3f}")
     
     # Thêm Temperature và Humidity nếu có dữ liệu
     if 'temperature' in df.columns and pd.notna(latest['temperature']):
@@ -48,9 +64,12 @@ if not df.empty:
     fig.add_hrect(y0=4.9, y1=5.5, fillcolor="red", opacity=0.1, annotation_text="Xấu")
 
     fig.add_trace(go.Scatter(x=df['timestamp'], y=df['iaq_actual'], name="IAQ Thực tế (ZMOD)", line=dict(color='#1f77b4', width=2)))
-    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['iaq_forecast'], name="IAQ Dự báo (AI)", line=dict(color='#d62728', dash='dot')))
     
-    fig.update_layout(height=450, yaxis_range=[0.8, 5.5])
+    # Vẽ đường IAQ dự báo tại đúng mốc thời gian mà nó dự đoán tới (T + 10 phút)
+    future_time = df['timestamp'] + pd.Timedelta(minutes=10)
+    fig.add_trace(go.Scatter(x=future_time, y=df['iaq_forecast'], name="IAQ Dự báo (10 phút trước)", line=dict(color='#d62728', dash='dot')))
+    
+    fig.update_layout(height=450, yaxis_range=[0.8, 5.5], title="So sánh IAQ Thực tế và IAQ Dự báo")
     st.plotly_chart(fig, use_container_width=True)
     
     # Biểu đồ TVOC theo thời gian

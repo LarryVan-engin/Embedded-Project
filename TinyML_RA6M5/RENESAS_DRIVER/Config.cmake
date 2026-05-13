@@ -1,0 +1,11 @@
+# Configuration file for custom user settings
+
+if(DEFINED RASC_EXE_PATH)
+    message("Using RASC_EXE_PATH defined via CLI -D: ${RASC_EXE_PATH}")
+elseif(DEFINED ENV{RASC_EXE_PATH})
+    set(RASC_EXE_PATH $ENV{RASC_EXE_PATH})
+    message("Using RASC_EXE_PATH defined in environment: ${RASC_EXE_PATH}")
+else()
+    set(RASC_EXE_PATH "C:/Renesas/RA/sc_v2025-07_fsp_v6.1.0/eclipse/rasc.exe")
+    message("Using RASC_EXE_PATH (default): ${RASC_EXE_PATH}")
+endif()
