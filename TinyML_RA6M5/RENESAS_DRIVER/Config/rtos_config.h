@@ -105,9 +105,9 @@
  *   OS_DEBUG_BACKEND_SEMIHOST : ARM semihosting via JTAG/SWD debugger
  *                               (requires --specs=rdimon.specs at link time)
  */
-#define OS_DEBUG_BACKEND_UART       0
+#define OS_DEBUG_BACKEND_UART       1
 #define OS_DEBUG_BACKEND_SEMIHOST   0
-#define OS_DEBUG_BACKEND_USB_CDC    1
+#define OS_DEBUG_BACKEND_USB_CDC    0
 
 /**
  * SCI channel used for UART output (0–9).

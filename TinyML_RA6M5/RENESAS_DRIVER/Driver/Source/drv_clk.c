@@ -8,7 +8,7 @@
  * 1 = force safe HOCO-only startup
  * 0 = use full production clock tree with timeout/fallback protection
  */
-#define CLK_SAFE_HOCO_ONLY 0U
+#define CLK_SAFE_HOCO_ONLY 1U
 #define CLK_WAIT_TIMEOUT_LOOPS 2000000UL
 
 /* Global to track actual SCI source clock after CLK_Init (PCLKB for this project). */

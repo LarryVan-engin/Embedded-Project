@@ -167,8 +167,10 @@ int main(void) {
   uint8_t dbg_link_ok;
   uint32_t crash_reason;
 
-  led_init();
+  /* Initialize System Clocks (200MHz ICLK, 50MHz PCLKB) */
+  CLK_Init();
 
+  led_init();
   debug_print_init();
 
   /*

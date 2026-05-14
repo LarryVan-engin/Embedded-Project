@@ -1,11 +1,18 @@
+import os
 import sqlite3
 import pandas as pd
 from datetime import datetime
 
 class DatabaseManager:
-    def __init__(self, db_name="backend/iaq_history.db"):
+    def __init__(self, db_name=None):
         """Khởi tạo kết nối và tạo bảng nếu chưa tồn tại."""
-        self.db_name = db_name
+        if db_name is None:
+            # Lấy đường dẫn tuyệt đối đến file database cùng thư mục với file này
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.db_name = os.path.join(base_dir, "iaq_history.db")
+        else:
+            self.db_name = db_name
+        
         self.initialize_db()
 
     def initialize_db(self):
@@ -32,18 +39,18 @@ class DatabaseManager:
         columns = {row[1] for row in cursor.fetchall()}
         
         if 'temperature' not in columns:
-            print("⚠️ Migrating database: Adding temperature column...")
+            print("[DB] Migrating database: Adding temperature column...")
             cursor.execute("ALTER TABLE air_quality_logs ADD COLUMN temperature REAL")
             conn.commit()
         
         if 'humidity' not in columns:
-            print("⚠️ Migrating database: Adding humidity column...")
+            print("[DB] Migrating database: Adding humidity column...")
             cursor.execute("ALTER TABLE air_quality_logs ADD COLUMN humidity REAL")
             conn.commit()
         
         # Xóa cột eco2 nếu tồn tại (không cần thiết trong mô hình hiện tại)
         if 'eco2' in columns:
-            print("ℹ️ Note: eco2 column will not be used (model uses TVOC only)")
+            print("[DB] Note: eco2 column will not be used (model uses TVOC only)")
         
         conn.close()
 
@@ -61,7 +68,7 @@ class DatabaseManager:
             conn.close()
             return True
         except Exception as e:
-            print(f"❌ Database Error (save_log): {e}")
+            print(f"[DB] Database Error (save_log): {e}")
             return False
 
     def get_data_count(self):
@@ -74,7 +81,7 @@ class DatabaseManager:
             conn.close()
             return count
         except Exception as e:
-            print(f"❌ Database Error (get_data_count): {e}")
+            print(f"[DB] Database Error (get_data_count): {e}")
             return 0
 
     def get_latest_record(self):

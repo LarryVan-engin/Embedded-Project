@@ -22,7 +22,7 @@
 #define BOARD_TYPE_EK   2
 
 /* Change this to switch board target */
-#define BOARD_TYPE      BOARD_TYPE_EK
+#define BOARD_TYPE      BOARD_TYPE_CK
 
 /* -----------------------------------------------------------------------
  * Board-Specific Pin Definitions (UART, SPI, I2C, etc.)
@@ -31,26 +31,33 @@
 #if (BOARD_TYPE == BOARD_TYPE_CK)
   /* CK-RA6M5: Cortex-M33 Cloud Kit with Arduino UNO connectors
    *
-   * VCOM path (preferred for debug):
-   *   J-Link OB (R7FA4M2AB3CNE) exposes a Virtual COM Port over the same
-   *   USB cable used for programming/debugging.
-   *   The OB chip's VCOM_TxD drives P708 (MCU RXD1) and the OB chip reads
-   *   from P709 (MCU TXD1), both on UART1 / SCI1.
+   * Current debug route in this worktree:
+   *   SCI3 on Arduino D0/D1.
+   *   P706 = RXD3 = Arduino D0
+   *   P707 = TXD3 = Arduino D1
    *
-   *   Use any serial terminal (PuTTY, Tera Term, minicom) on the J-Link
-   *   OB virtual COM port at 115200 8N1.  No additional USB-UART adapter
-   *   is required.
+   * J-Link OB VCOM is still available on SCI1:
+   *   P708 = RXD1 from the OB bridge
+   *   P709 = TXD1 to the OB bridge
    *
-   * Arduino D0/D1 (P706/P707, SCI3) are still available for the ESP32
-   *   UART bridge, but they are NOT used for debug print.
-   */
-  #define VCOM_UART_CHANNEL   1     /* SCI1: P709(TXD) / P708(RXD) → J-Link OB VCOM */
+   * The VCOM_UART_CHANNEL macro name is kept for compatibility, but the
+   * active channel value below is SCI3.
+   */ 
+  #define VCOM_UART_CHANNEL   3     /* Active debug route: SCI3 on Arduino D1/D0 */
   #define DEBUG_UART_CHANNEL  VCOM_UART_CHANNEL
   #define DEBUG_UART_RX_PORT    7
-  #define DEBUG_UART_RX_PIN     8   /* P708  ← VCOM_TxD from J-Link OB */
+  #define DEBUG_UART_RX_PIN     6   /* P706 = Arduino D0 = RXD3 */
   #define DEBUG_UART_TX_PORT    7
-  #define DEBUG_UART_TX_PIN     9   /* P709  → VCOM_RxD into J-Link OB */
+  #define DEBUG_UART_TX_PIN     7   /* P707 = Arduino D1 = TXD3 */
   #define DEBUG_UART_PSEL       0x05U
+
+  /* Shared debug + ESP32 bridge / OTA route: same SCI3 on Arduino D0/D1. */
+  #define SERVER_COMM_UART_CHANNEL  DEBUG_UART_CHANNEL
+  #define SERVER_COMM_UART_RX_PORT  DEBUG_UART_RX_PORT
+  #define SERVER_COMM_UART_RX_PIN   DEBUG_UART_RX_PIN
+  #define SERVER_COMM_UART_TX_PORT  DEBUG_UART_TX_PORT
+  #define SERVER_COMM_UART_TX_PIN   DEBUG_UART_TX_PIN
+  #define SERVER_COMM_UART_PSEL     DEBUG_UART_PSEL
   
   /* LED assignments (active-HIGH) */
   #define LED1_PORT  GPIO_PORT6
@@ -76,6 +83,13 @@
   #define DEBUG_UART_TX_PORT    6
   #define DEBUG_UART_TX_PIN     13  /* P613 */
   #define DEBUG_UART_PSEL       0x05U
+
+  #define SERVER_COMM_UART_CHANNEL  DEBUG_UART_CHANNEL
+  #define SERVER_COMM_UART_RX_PORT  DEBUG_UART_RX_PORT
+  #define SERVER_COMM_UART_RX_PIN   DEBUG_UART_RX_PIN
+  #define SERVER_COMM_UART_TX_PORT  DEBUG_UART_TX_PORT
+  #define SERVER_COMM_UART_TX_PIN   DEBUG_UART_TX_PIN
+  #define SERVER_COMM_UART_PSEL     DEBUG_UART_PSEL
   
   /* LED assignments (active-HIGH) */
   #define LED1_PORT  GPIO_PORT0
@@ -100,6 +114,7 @@
  * ----------------------------------------------------------------------- */
 #define DEBUG_UART_BAUDRATE   115200U
 #define DEBUG_UART_BRR_DIV    4U     /* /4 mode: BGDM=1, ABCS=1 */
+#define SERVER_COMM_UART_BAUDRATE  115200U
 
 /* Helper macros to identify board */
 #define IS_BOARD_CK()   (BOARD_TYPE == BOARD_TYPE_CK)

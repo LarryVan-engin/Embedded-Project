@@ -36,11 +36,19 @@
 #include "rtos_config.h"
 
 #ifndef FWUPDATE_UART_CHANNEL
-#define FWUPDATE_UART_CHANNEL  OS_DEBUG_UART_CHANNEL
+  #ifdef SERVER_COMM_UART_CHANNEL
+    #define FWUPDATE_UART_CHANNEL  SERVER_COMM_UART_CHANNEL   /* board-specific comm UART */
+  #else
+    #define FWUPDATE_UART_CHANNEL  OS_DEBUG_UART_CHANNEL      /* fallback: shared debug UART */
+  #endif
 #endif
 
 #ifndef FWUPDATE_UART_BAUDRATE
-#define FWUPDATE_UART_BAUDRATE OS_DEBUG_UART_BAUDRATE
+  #ifdef SERVER_COMM_UART_BAUDRATE
+    #define FWUPDATE_UART_BAUDRATE SERVER_COMM_UART_BAUDRATE
+  #else
+    #define FWUPDATE_UART_BAUDRATE OS_DEBUG_UART_BAUDRATE
+  #endif
 #endif
 
 /* -----------------------------------------------------------------------

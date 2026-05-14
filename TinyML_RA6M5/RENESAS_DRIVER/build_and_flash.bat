@@ -6,8 +6,8 @@ setlocal enabledelayedexpansion
 :: -------------------------------------------------------
 
 :: ---- Toolchain paths (edit if different on your machine) ----
-set "ARM_TOOLCHAIN_PATH=C:\Program Files (x86)\Arm GNU Toolchain arm-none-eabi\14.2 Rel1\bin"
-set "JLINK_PATH=C:\Program Files\SEGGER\JLink_V910\JLink.exe"
+set "ARM_TOOLCHAIN_PATH=C:\Tools\xpack-arm-none-eabi-gcc-14.2.1-1.1\bin"
+set "JLINK_PATH=C:\Program Files\SEGGER\JLink_V912\JLink.exe"
 
 :: Convert to short path to avoid (x86) parsing issues in cmd.exe
 for %%A in ("!ARM_TOOLCHAIN_PATH!") do set "ARM_TOOLCHAIN_PATH=%%~sA"
@@ -40,7 +40,7 @@ cmake -G Ninja ^
     "-DCMAKE_TOOLCHAIN_FILE=%~dp0cmake\gcc.cmake" ^
     "-DCMAKE_BUILD_TYPE=!BUILD_TYPE!" ^
     "-DARM_TOOLCHAIN_PATH=!ARM_TOOLCHAIN_PATH!" ^
-    "%~dp0"
+    "%~dp0."
 
 if errorlevel 1 (
     echo [ERROR] CMake configuration failed.

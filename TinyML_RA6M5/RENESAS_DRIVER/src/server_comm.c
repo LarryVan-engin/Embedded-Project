@@ -48,16 +48,26 @@ static int32_t server_comm_round_to_i32(float val)
 
 static void server_comm_uart_init(void)
 {
-#if OS_DEBUG_BACKEND_USB_CDC
-    /* debug_print() uses USB CDC in this build, so the SCI channel used for
-     * Arduino must be brought up explicitly here. */
-    UART_Init((UART_t)OS_DEBUG_UART_CHANNEL, OS_DEBUG_UART_BAUDRATE);
+    /* SCI channel for ESP32 telemetry (SERVER_COMM_UART_CHANNEL = SCI3 on CK).
+     * Note: fwupdate_receiver_init() also calls UART_Init on this channel;
+     * calling it here first ensures the pin mux is set before fwupdate init.
+     * Double-calling UART_Init on the same channel is safe only if done
+     * before tasks start. After OS_Start(), fwupdate_receiver_init() must
+     * NOT re-call UART_Init — it is called from server_comm_init() which
+     * runs before OS_Start() in main.c. */
+#if (SERVER_COMM_UART_CHANNEL != OS_DEBUG_UART_CHANNEL)
+    /* CK: SCI3 is the shared debug/server channel — always initialise it here. */
+    UART_Init((UART_t)SERVER_COMM_UART_CHANNEL, SERVER_COMM_UART_BAUDRATE);
+#elif OS_DEBUG_BACKEND_USB_CDC
+    /* EK with USB CDC: debug is on USB, so the shared SCI must be brought up
+     * explicitly for ESP32 communication. */
+    UART_Init((UART_t)SERVER_COMM_UART_CHANNEL, SERVER_COMM_UART_BAUDRATE);
 #endif
 }
 
 static void server_comm_send_u8(uint8_t b)
 {
-    UART_SendChar((UART_t)OS_DEBUG_UART_CHANNEL, (char)b);
+    UART_SendChar((UART_t)SERVER_COMM_UART_CHANNEL, (char)b);
 }
 
 static void server_comm_send_cstr(const char *text)

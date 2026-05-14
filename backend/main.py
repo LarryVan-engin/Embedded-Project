@@ -12,17 +12,17 @@ import os
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Logic chạy khi ứng dụng Startup
-    print("🚀 Khởi tạo Database...")
+    print("[DB] Khoi tao Database...")
     db_manager.initialize_db()
     
-    print("📡 Đang khởi động MQTT Client Service...")
+    print("[MQTT] Dang khoi dong MQTT Client Service...")
     mqtt_thread = threading.Thread(target=mqtt_service.run, daemon=True)
     mqtt_thread.start()
     
     yield # Ứng dụng API sẽ hoạt động trong suốt quá trình này
     
     # Logic chạy khi ứng dụng Shutdown (Tắt server)
-    print("🛑 Đang dọn dẹp và tắt hệ thống...")
+    print("[SYS] Dang don dep va tat he thong...")
 
 # --- 2. KHỞI TẠO APP VỚI LIFESPAN ---
 app = FastAPI(
