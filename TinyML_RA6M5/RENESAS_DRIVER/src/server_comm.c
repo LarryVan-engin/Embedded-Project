@@ -3,7 +3,7 @@
 #include "debug_print.h"
 #include "drv_usb.h"
 #include "drv_uart.h"
-/* fwupdate_receiver.h removed — OTA push bypassed, pre-flashed model in use */
+#include "fwupdate_receiver.h"
 #include "iaq_predictor.h"
 #include "kernel.h"
 #include "rtos_config.h"
@@ -36,9 +36,6 @@ static Semaphore_t s_server_comm_tx_sem;
 static server_comm_ctx_t s_server_comm;
 static uint8_t s_server_comm_inited = 0U;
 
-/* Set to 1 by task_server_comm_rx when an OTA transfer is in progress.
- * task_server_comm_iaq checks this before sending any UART TX bytes to
- * avoid corrupting the OTA ACK/NACK stream on the shared channel. */
 static volatile uint8_t s_ota_active = 0U;
 
 static int32_t server_comm_round_to_i32(float val)
@@ -217,26 +214,15 @@ static void task_server_comm_rx(void *arg)
     (void)arg;
     static uint32_t s_fer_count  = 0U;
     static uint32_t s_orer_count = 0U;
-    static uint32_t s_rdrf_count = 0U;  /* good bytes seen */
+    static uint32_t s_rdrf_count = 0U;  /* good bytes seen by fwupdate */
     static uint32_t s_log_timer  = 0U;
-
-    /* [BYPASS MODE] OTA push đã được tắt (model pre-flashed).
-     * fwupdate_receiver_run() KHÔNG được gọi → s_ota_active luôn = 0
-     * → task_server_comm_iaq luôn gửi dữ liệu bình thường. */
-    s_ota_active = 0U;
 
     for (;;)
     {
-        /* Clear UART hardware errors (ORER/FER/PER) using correct RA6M5 sequence:
-         * 1. Read SSR to detect errors
-         * 2. If RDRF+ORER: read RDR to discard the errored byte (clears RDRF)
-         * 3. Write 0 to error bits in SSR to clear them
-         * Failure to follow this sequence on RA6M5 leaves ORER latched,
-         * blocking all future RX (RDRF never gets set again). */
+        /* Clear UART hardware errors (ORER/FER/PER) using correct RA6M5 sequence */
         {
             uint8_t ssr = SCI_SSR(OS_DEBUG_UART_CHANNEL);
 
-            /* Count good bytes arriving before error check */
             if ((ssr & SSR_RDRF) != 0U)
             {
                 s_rdrf_count++;
@@ -247,13 +233,11 @@ static void task_server_comm_rx(void *arg)
                 if ((ssr & SSR_FER)  != 0U) { s_fer_count++;  }
                 if ((ssr & SSR_ORER) != 0U) { s_orer_count++; }
 
-                /* Discard errored byte if one is pending */
                 if ((ssr & SSR_RDRF) != 0U)
                 {
                     (void)SCI_RDR(OS_DEBUG_UART_CHANNEL);
                 }
-                /* Clear error flags: write 0 to error bits, keep TDRE/RDRF as-is */
-                SCI_SSR(OS_DEBUG_UART_CHANNEL) = (uint8_t)0xC0U; /* TDRE=1,RDRF=1, errors=0 */
+                SCI_SSR(OS_DEBUG_UART_CHANNEL) = (uint8_t)0xC0U;
             }
         }
 
@@ -262,15 +246,18 @@ static void task_server_comm_rx(void *arg)
         if (s_log_timer >= 5000U)
         {
             s_log_timer = 0U;
-            debug_print("[srv_rx] UART health: RDRF=%lu FER=%lu ORER=%lu [OTA-BYPASS]\r\n",
+            debug_print("[srv_rx] UART health: RDRF=%lu FER=%lu ORER=%lu\r\n",
                         s_rdrf_count, s_fer_count, s_orer_count);
             s_rdrf_count = 0U;
             s_fer_count  = 0U;
             s_orer_count = 0U;
         }
 
-        /* [BYPASS] fwupdate_receiver_run() is intentionally NOT called.
-         * s_ota_active remains 0 — IAQ TX task runs uninterrupted. */
+        fwupdate_state_t fw_state = fwupdate_receiver_run();
+
+        /* Signal IAQ TX task to pause when an OTA transfer is active. */
+        s_ota_active = ((fw_state != FWUPDATE_STATE_IDLE) &&
+                        (fw_state != FWUPDATE_STATE_DONE)) ? 1U : 0U;
 
         OS_Task_Delay(1U);
     }
@@ -339,9 +326,7 @@ static void task_server_comm_iaq(void *arg)
                     t_int, t_frac, a_int, a_frac1, a_frac2, p_int, p_frac1, p_frac2);
         debug_print("T=%d.%d C  RH=%d.%d%%\r\n", temp_int, temp_frac, hum_int, hum_frac);
 
-        /* Pause UART TX to ESP32 while OTA transfer is receiving frames.
-         * Transmitting IAQ text during OTA would corrupt the ACK/NACK
-         * bytes the fwupdate receiver sends back on the same channel. */
+        /* Pause UART TX to ESP32 while OTA transfer is receiving frames. */
         if (s_ota_active == 0U)
         {
             server_comm_send_published(tvoc_10, actual_100, predict_100);
@@ -370,8 +355,7 @@ void server_comm_init(void)
     s_server_comm.iaq_pending = 0U;
 
     server_comm_uart_init();
-    /* [BYPASS] fwupdate_receiver_init() not called — OTA receiver disabled.
-     * s_ota_active is permanently 0 (set at top of task_server_comm_rx). */
+    fwupdate_receiver_init();
 
     if (OS_SemCreate(&s_server_comm_tx_sem, 0U, 1U) != OS_OK)
     {
