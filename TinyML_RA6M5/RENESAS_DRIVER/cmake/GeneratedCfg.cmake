@@ -52,7 +52,7 @@ set(RASC_CMAKE_CXX_FLAGS
     -Wpointer-arith
     -Wshadow
     -Wlogical-op
-    -Waggregate-return
+    -Wno-aggregate-return    # TFLite Micro Add*() ops return aggregates by design
     -Wfloat-equal
     -fmessage-length=0
     -fsigned-char

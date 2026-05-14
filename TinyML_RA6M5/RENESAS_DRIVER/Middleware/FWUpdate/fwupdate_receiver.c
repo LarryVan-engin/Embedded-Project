@@ -13,9 +13,25 @@
 #include "drv_uart.h"
 #include "drv_clk.h"
 #include "drv_flash_hp.h"
+#include "debug_print.h"   /* OTA debug logging */
 
 #include <stdint.h>
 #include <stddef.h>
+
+/* -----------------------------------------------------------------------
+ * Cortex-M33 system reset via SCB AIRCR register.
+ * Matches the hw_system_reset() pattern in safe_reset.c.
+ * ----------------------------------------------------------------------- */
+#define FWUPDATE_SCB_AIRCR  (*(volatile uint32_t *)0xE000ED0CUL)
+#define FWUPDATE_AIRCR_RESET  ((0x05FAUL << 16U) | (1UL << 2U))
+
+static void fwupdate_system_reset(void)
+{
+    __asm volatile("dsb 0xF" ::: "memory");
+    FWUPDATE_SCB_AIRCR = FWUPDATE_AIRCR_RESET;
+    __asm volatile("dsb 0xF" ::: "memory");
+    for (;;) { __asm volatile("nop"); }
+}
 
 /* -----------------------------------------------------------------------
  * Internal UART send helpers (blocking) — used only for ACK/NACK frames.
@@ -90,6 +106,9 @@ static void send_ack(uint8_t echo_cmd)
     crc_buf[3] = echo_cmd;
     crc = crc16_ccitt(crc_buf, 4U);
 
+    debug_print("[FWU] TX ACK echo_cmd=0x%02X crc=0x%04X\r\n",
+                echo_cmd, (unsigned)crc);
+
     uart2_send_byte(FWUPDATE_STX);
     uart2_send_byte(FWUPDATE_CMD_ACK);
     uart2_send_byte(0x00U);                          /* LEN_MSB  */
@@ -114,6 +133,9 @@ static void send_nack(uint8_t reason)
     crc_buf[2] = 0x01U;
     crc_buf[3] = reason;
     crc = crc16_ccitt(crc_buf, 4U);
+
+    debug_print("[FWU] TX NACK reason=0x%02X crc=0x%04X\r\n",
+                reason, (unsigned)crc);
 
     uart2_send_byte(FWUPDATE_STX);
     uart2_send_byte(FWUPDATE_CMD_NACK);
@@ -153,6 +175,11 @@ static uint8_t frame_crc_valid(void)
 
     crc_len = (uint16_t)(3U + s_ctx.frame_len);
     computed_crc = crc16_ccitt(crc_buf, (uint32_t)crc_len);
+
+    debug_print("[FWU] frame_crc_valid: cmd=0x%02X len=%u  computed=0x%04X  recv=0x%04X  %s\r\n",
+                s_ctx.frame_cmd, s_ctx.frame_len,
+                (unsigned)computed_crc, (unsigned)s_ctx.frame_crc_received,
+                (computed_crc == s_ctx.frame_crc_received) ? "OK" : "MISMATCH");
 
     return (computed_crc == s_ctx.frame_crc_received) ? 1U : 0U;
 }
@@ -239,8 +266,12 @@ static flash_hp_status_t process_frame(void)
             uint32_t total_len;
             uint32_t num_blocks;
 
+            debug_print("[FWU] CMD_START received, frame_len=%u\r\n", s_ctx.frame_len);
+
             if (s_ctx.frame_len != 4U)
             {
+                debug_print("[FWU] CMD_START bad payload len=%u (expected 4) -> NACK_SEQUENCE\r\n",
+                            s_ctx.frame_len);
                 send_nack(FWUPDATE_NACK_SEQUENCE);
                 break;
             }
@@ -251,8 +282,12 @@ static flash_hp_status_t process_frame(void)
             total_len |= (uint32_t)s_ctx.frame_data[2] << 8U;
             total_len |= (uint32_t)s_ctx.frame_data[3];
 
+            debug_print("[FWU] CMD_START total_len=%lu  MAX=%lu\r\n",
+                        total_len, (uint32_t)FWUPDATE_MAX_MODEL_LEN);
+
             if (total_len == 0UL || total_len > FWUPDATE_MAX_MODEL_LEN)
             {
+                debug_print("[FWU] CMD_START NACK_LENGTH: total_len=%lu out of range\r\n", total_len);
                 send_nack(FWUPDATE_NACK_LENGTH);
                 break;
             }
@@ -263,23 +298,29 @@ static flash_hp_status_t process_frame(void)
             s_ctx.flash_write_addr   = FWUPDATE_FLASH_BASE;
 
             /* Initialise Flash HP P/E mode */
+            debug_print("[FWU] flash_hp_init()...\r\n");
             status = flash_hp_init();
             if (status != FLASH_HP_OK)
             {
+                debug_print("[FWU] flash_hp_init FAILED status=%d -> NACK_FLASH\r\n", (int)status);
                 send_nack(FWUPDATE_NACK_FLASH);
                 break;
             }
 
             /* Erase required blocks — ceil(total_len / 64) */
             num_blocks = (total_len + DATA_FLASH_BLOCK_SIZE - 1UL) / DATA_FLASH_BLOCK_SIZE;
+            debug_print("[FWU] Erasing %lu blocks @ 0x%08lX...\r\n",
+                        num_blocks, (uint32_t)FWUPDATE_FLASH_BASE);
             status = flash_hp_erase(FWUPDATE_FLASH_BASE, num_blocks);
             if (status != FLASH_HP_OK)
             {
+                debug_print("[FWU] flash_hp_erase FAILED status=%d -> NACK_FLASH\r\n", (int)status);
                 flash_hp_exit();
                 send_nack(FWUPDATE_NACK_FLASH);
                 break;
             }
 
+            debug_print("[FWU] Erase OK -> sending ACK\r\n");
             s_ctx.state = FWUPDATE_STATE_IDLE;   /* ready for CMD_DATA frames */
             send_ack(FWUPDATE_CMD_START);
             break;
@@ -458,6 +499,17 @@ static flash_hp_status_t process_frame(void)
 
             s_ctx.state = FWUPDATE_STATE_DONE;
             send_ack(FWUPDATE_CMD_END);
+
+            /* Small delay to let the ACK frame fully transmit before reset */
+            {
+                volatile uint32_t i;
+                for (i = 0UL; i < 2000000UL; i++) { __asm volatile("nop"); }
+            }
+
+            /* Reset MCU — on next boot iaq_predictor will load the new model
+             * from Data Flash (NVS magic marker will be valid). */
+            debug_print("[FWU] OTA complete! Resetting MCU...\r\n");
+            fwupdate_system_reset();
             break;
         }
 

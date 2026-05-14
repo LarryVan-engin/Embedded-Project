@@ -3,7 +3,7 @@
 #include "debug_print.h"
 #include "drv_usb.h"
 #include "drv_uart.h"
-#include "fwupdate_receiver.h"
+/* fwupdate_receiver.h removed — OTA push bypassed, pre-flashed model in use */
 #include "iaq_predictor.h"
 #include "kernel.h"
 #include "rtos_config.h"
@@ -215,6 +215,15 @@ static void task_server_comm_tx(void *arg)
 static void task_server_comm_rx(void *arg)
 {
     (void)arg;
+    static uint32_t s_fer_count  = 0U;
+    static uint32_t s_orer_count = 0U;
+    static uint32_t s_rdrf_count = 0U;  /* good bytes seen */
+    static uint32_t s_log_timer  = 0U;
+
+    /* [BYPASS MODE] OTA push đã được tắt (model pre-flashed).
+     * fwupdate_receiver_run() KHÔNG được gọi → s_ota_active luôn = 0
+     * → task_server_comm_iaq luôn gửi dữ liệu bình thường. */
+    s_ota_active = 0U;
 
     for (;;)
     {
@@ -226,8 +235,18 @@ static void task_server_comm_rx(void *arg)
          * blocking all future RX (RDRF never gets set again). */
         {
             uint8_t ssr = SCI_SSR(OS_DEBUG_UART_CHANNEL);
+
+            /* Count good bytes arriving before error check */
+            if ((ssr & SSR_RDRF) != 0U)
+            {
+                s_rdrf_count++;
+            }
+
             if ((ssr & (SSR_ORER | SSR_FER | SSR_PER)) != 0U)
             {
+                if ((ssr & SSR_FER)  != 0U) { s_fer_count++;  }
+                if ((ssr & SSR_ORER) != 0U) { s_orer_count++; }
+
                 /* Discard errored byte if one is pending */
                 if ((ssr & SSR_RDRF) != 0U)
                 {
@@ -238,20 +257,25 @@ static void task_server_comm_rx(void *arg)
             }
         }
 
-        fwupdate_state_t fw_state = fwupdate_receiver_run();
+        /* Periodic UART health report every 5000 ms */
+        s_log_timer++;
+        if (s_log_timer >= 5000U)
+        {
+            s_log_timer = 0U;
+            debug_print("[srv_rx] UART health: RDRF=%lu FER=%lu ORER=%lu [OTA-BYPASS]\r\n",
+                        s_rdrf_count, s_fer_count, s_orer_count);
+            s_rdrf_count = 0U;
+            s_fer_count  = 0U;
+            s_orer_count = 0U;
+        }
 
-        /* Signal IAQ TX task to pause when an OTA transfer is active.
-         * IDLE and DONE states mean no active transfer. */
-        s_ota_active = ((fw_state != FWUPDATE_STATE_IDLE) &&
-                        (fw_state != FWUPDATE_STATE_DONE)) ? 1U : 0U;
+        /* [BYPASS] fwupdate_receiver_run() is intentionally NOT called.
+         * s_ota_active remains 0 — IAQ TX task runs uninterrupted. */
 
-        /* Delay 1 tick (1 ms) so task_server_comm_iaq (priority 7, lower) and
-         * other tasks can run. OS_Yield() does NOT work here: because this task
-         * is priority 6, OS_Yield() would immediately reschedule it back and
-         * starve all lower-priority tasks (including the IAQ UART TX task). */
         OS_Task_Delay(1U);
     }
 }
+
 
 
 static void task_server_comm_iaq(void *arg)
@@ -346,7 +370,8 @@ void server_comm_init(void)
     s_server_comm.iaq_pending = 0U;
 
     server_comm_uart_init();
-    fwupdate_receiver_init();
+    /* [BYPASS] fwupdate_receiver_init() not called — OTA receiver disabled.
+     * s_ota_active is permanently 0 (set at top of task_server_comm_rx). */
 
     if (OS_SemCreate(&s_server_comm_tx_sem, 0U, 1U) != OS_OK)
     {
